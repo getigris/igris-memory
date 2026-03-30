@@ -1,9 +1,14 @@
+use crate::errors::IgrisError;
 use crate::models::{Observation, SearchResult, Session, Stats};
 use crate::schema::{PRAGMAS, SCHEMA_V1, SCHEMA_VERSION};
 use crate::utils::{hash_content, now_utc, strip_private_tags};
+use crate::validation;
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::collections::HashMap;
 use std::path::Path;
+
+/// Result type for Database operations.
+pub type DbResult<T> = Result<T, IgrisError>;
 
 /// Deduplication window in minutes — saves with identical content
 /// within this window are counted as duplicates instead of new entries.
@@ -51,6 +56,7 @@ impl Database {
     // ─── Observations (memories) ────────────────────────────────────
 
     /// Save a new observation with deduplication and topic-key upsert logic.
+    #[allow(clippy::too_many_arguments)]
     pub fn save_observation(
         &self,
         title: &str,
@@ -61,7 +67,8 @@ impl Database {
         topic_key: Option<&str>,
         tags: Option<&[String]>,
         session_id: Option<&str>,
-    ) -> SqlResult<Observation> {
+    ) -> DbResult<Observation> {
+        validation::validate_save(title, content, obs_type, scope)?;
         let clean_content = strip_private_tags(content);
         let clean_title = strip_private_tags(title);
         let content_hash = hash_content(&clean_content);
@@ -166,15 +173,15 @@ impl Database {
     }
 
     /// Get a single observation by ID.
-    pub fn get_observation(&self, id: i64) -> SqlResult<Observation> {
-        self.conn.query_row(
+    pub fn get_observation(&self, id: i64) -> DbResult<Observation> {
+        Ok(self.conn.query_row(
             "SELECT id, session_id, type, title, content, project, scope,
                     topic_key, tags, revision_count, duplicate_count,
                     created_at, updated_at, deleted_at
              FROM observations WHERE id = ?1",
             params![id],
             |row| Ok(Self::row_to_observation(row)),
-        )
+        )?)
     }
 
     /// Update an observation partially — only provided fields are changed.
@@ -186,7 +193,11 @@ impl Database {
         obs_type: Option<&str>,
         tags: Option<&[String]>,
         topic_key: Option<&str>,
-    ) -> SqlResult<Observation> {
+    ) -> DbResult<Observation> {
+        validation::validate_update_has_fields(title, content, obs_type, tags, topic_key)?;
+        if let Some(t) = obs_type {
+            validation::validate_observation_type(t)?;
+        }
         let now = now_utc();
 
         if let Some(t) = title {
@@ -227,7 +238,7 @@ impl Database {
     }
 
     /// Soft-delete an observation (sets deleted_at, keeps data).
-    pub fn delete_observation(&self, id: i64) -> SqlResult<bool> {
+    pub fn delete_observation(&self, id: i64) -> DbResult<bool> {
         let affected = self.conn.execute(
             "UPDATE observations SET deleted_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
             params![now_utc(), id],
@@ -242,7 +253,12 @@ impl Database {
         obs_type: Option<&str>,
         project: Option<&str>,
         limit: Option<i64>,
-    ) -> SqlResult<Vec<SearchResult>> {
+    ) -> DbResult<Vec<SearchResult>> {
+        validation::validate_search_query(query)?;
+        validation::validate_limit(limit)?;
+        if let Some(t) = obs_type {
+            validation::validate_observation_type(t)?;
+        }
         let limit = limit.unwrap_or(DEFAULT_LIMIT).min(50);
 
         // Wrap each word in quotes for safe FTS5 matching
@@ -334,7 +350,7 @@ impl Database {
         &self,
         project: Option<&str>,
         limit: Option<i64>,
-    ) -> SqlResult<Vec<Observation>> {
+    ) -> DbResult<Vec<Observation>> {
         let limit = limit.unwrap_or(DEFAULT_LIMIT).min(50);
 
         let (sql, bind_val) = if let Some(p) = project {
@@ -382,7 +398,7 @@ impl Database {
     }
 
     /// Aggregate statistics about the memory store.
-    pub fn stats(&self) -> SqlResult<Stats> {
+    pub fn stats(&self) -> DbResult<Stats> {
         let total_observations: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM observations WHERE deleted_at IS NULL",
             [],
@@ -440,7 +456,8 @@ impl Database {
         id: &str,
         project: &str,
         directory: Option<&str>,
-    ) -> SqlResult<Session> {
+    ) -> DbResult<Session> {
+        validation::validate_session(id, project)?;
         let now = now_utc();
         self.conn.execute(
             "INSERT INTO sessions (id, project, directory, started_at)
@@ -451,7 +468,8 @@ impl Database {
     }
 
     /// Mark a session as ended.
-    pub fn end_session(&self, id: &str, summary: Option<&str>) -> SqlResult<Session> {
+    pub fn end_session(&self, id: &str, summary: Option<&str>) -> DbResult<Session> {
+        validation::require_non_empty(id, "session id")?;
         let now = now_utc();
         self.conn.execute(
             "UPDATE sessions SET ended_at = ?1, summary = COALESCE(?2, summary)
@@ -466,7 +484,9 @@ impl Database {
         &self,
         content: &str,
         project: &str,
-    ) -> SqlResult<Session> {
+    ) -> DbResult<Session> {
+        validation::require_non_empty(content, "content")?;
+        validation::require_non_empty(project, "project")?;
         let clean = strip_private_tags(content);
         // Find the most recent active session for this project, or create one
         let session_id: Option<String> = self
@@ -503,8 +523,8 @@ impl Database {
         }
     }
 
-    fn get_session(&self, id: &str) -> SqlResult<Session> {
-        self.conn.query_row(
+    fn get_session(&self, id: &str) -> DbResult<Session> {
+        Ok(self.conn.query_row(
             "SELECT id, project, directory, started_at, ended_at, summary
              FROM sessions WHERE id = ?1",
             params![id],
@@ -518,7 +538,7 @@ impl Database {
                     summary: row.get(5)?,
                 })
             },
-        )
+        )?)
     }
 
     // ─── Helpers ────────────────────────────────────────────────────
@@ -667,5 +687,81 @@ mod tests {
         assert_eq!(stats.total_sessions, 1);
         assert_eq!(*stats.by_type.get("decision").unwrap(), 2);
         assert_eq!(*stats.by_project.get("p1").unwrap(), 2);
+    }
+
+    // ─── Validation integration tests ───────────────────────────────
+
+    #[test]
+    fn save_rejects_empty_title() {
+        let db = test_db();
+        let err = db.save_observation("", "content", "decision", None, "project", None, None, None);
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn save_rejects_invalid_type() {
+        let db = test_db();
+        let err = db.save_observation("Title", "content", "invalid", None, "project", None, None, None);
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn save_rejects_invalid_scope() {
+        let db = test_db();
+        let err = db.save_observation("Title", "content", "decision", None, "global", None, None, None);
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn search_rejects_empty_query() {
+        let db = test_db();
+        let err = db.search("", None, None, None);
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn search_rejects_zero_limit() {
+        let db = test_db();
+        let err = db.search("test", None, None, Some(0));
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn update_rejects_empty_fields() {
+        let db = test_db();
+        let obs = db.save_observation("T", "C", "manual", None, "project", None, None, None).unwrap();
+        let err = db.update_observation(obs.id, None, None, None, None, None);
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn update_rejects_invalid_type() {
+        let db = test_db();
+        let obs = db.save_observation("T", "C", "manual", None, "project", None, None, None).unwrap();
+        let err = db.update_observation(obs.id, None, None, Some("nope"), None, None);
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn session_rejects_empty_id() {
+        let db = test_db();
+        let err = db.start_session("", "proj", None);
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn session_rejects_empty_project() {
+        let db = test_db();
+        let err = db.start_session("s1", "", None);
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 }
