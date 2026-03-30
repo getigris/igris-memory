@@ -1,3 +1,5 @@
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use std::fmt;
 
@@ -56,6 +58,18 @@ impl From<rusqlite::Error> for IgrisError {
 impl From<String> for IgrisError {
     fn from(msg: String) -> Self {
         Self::validation(msg)
+    }
+}
+
+impl IntoResponse for IgrisError {
+    fn into_response(self) -> Response {
+        let status = match self.code {
+            ErrorCode::ValidationError => StatusCode::BAD_REQUEST,
+            ErrorCode::NotFound => StatusCode::NOT_FOUND,
+            ErrorCode::DatabaseError => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::LockError => StatusCode::SERVICE_UNAVAILABLE,
+        };
+        (status, axum::Json(self)).into_response()
     }
 }
 

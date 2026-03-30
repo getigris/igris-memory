@@ -1,14 +1,15 @@
 mod cli;
 mod db;
 mod errors;
+mod http;
 mod models;
 mod schema;
 mod server;
-mod utils;
 mod topic;
+mod utils;
 mod validation;
 
-use crate::cli::Cli;
+use crate::cli::{Cli, Command};
 use crate::db::Database;
 use crate::server::IgrisServer;
 use clap::Parser;
@@ -38,15 +39,22 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Igris Memory starting — db at {}", db_path.display());
 
     let db = Database::open(&db_path)?;
-    let server = IgrisServer::new(db);
 
-    let service = server
-        .serve(stdio())
-        .await
-        .inspect_err(|e| {
-            tracing::error!("MCP serve error: {:?}", e);
-        })?;
+    match cli.command {
+        Some(Command::Serve { port, host }) => {
+            http::serve(db, &host, port).await?;
+        }
+        None => {
+            let server = IgrisServer::new(db);
+            let service = server
+                .serve(stdio())
+                .await
+                .inspect_err(|e| {
+                    tracing::error!("MCP serve error: {:?}", e);
+                })?;
+            service.waiting().await?;
+        }
+    }
 
-    service.waiting().await?;
     Ok(())
 }
