@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::errors::IgrisError;
+use crate::topic;
 use rmcp::{
     ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -82,6 +83,39 @@ pub struct ContextArgs {
     pub project: Option<String>,
     #[schemars(description = "Max results (default 20, max 50)")]
     pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct TimelineArgs {
+    #[schemars(description = "Observation ID to center the timeline on")]
+    pub observation_id: i64,
+    #[schemars(description = "Number of observations to show before the anchor (default 5, max 50)")]
+    pub before: Option<i64>,
+    #[schemars(description = "Number of observations to show after the anchor (default 5, max 50)")]
+    pub after: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct PurgeArgs {
+    #[schemars(description = "Permanently delete observations that were soft-deleted more than this many days ago. Use 0 to purge all soft-deleted entries.")]
+    pub older_than_days: i64,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ImportArgs {
+    #[schemars(description = "JSON string containing the exported data (from igris_export)")]
+    pub data: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SuggestTopicKeyArgs {
+    #[schemars(description = "Observation type (e.g. decision, architecture, bugfix)")]
+    #[serde(rename = "type")]
+    pub observation_type: String,
+    #[schemars(description = "Title of the observation")]
+    pub title: String,
+    #[schemars(description = "Content of the observation")]
+    pub content: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -317,6 +351,103 @@ impl IgrisServer {
             }
         };
         tracing::info!(tool = "igris_stats", duration_ms = start.elapsed().as_millis() as u64);
+        result
+    }
+
+    #[tool(
+        name = "igris_timeline",
+        description = "Get a chronological view around a specific memory. Shows observations created before and after the anchor, useful for understanding the context in which a decision was made."
+    )]
+    fn igris_timeline(&self, Parameters(args): Parameters<TimelineArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.timeline(args.observation_id, args.before, args.after) {
+            Ok(tl) => to_json(&tl),
+            Err(e) => {
+                tracing::warn!(tool = "igris_timeline", error = %e, "not found or db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(tool = "igris_timeline", duration_ms = start.elapsed().as_millis() as u64);
+        result
+    }
+
+    #[tool(
+        name = "igris_suggest_topic_key",
+        description = "Suggest a stable topic_key for an observation based on its type and title. Use this to get a consistent key before saving, so related memories can be grouped and updated via topic-key upsert."
+    )]
+    fn igris_suggest_topic_key(&self, Parameters(args): Parameters<SuggestTopicKeyArgs>) -> String {
+        let key = topic::suggest_topic_key(&args.observation_type, &args.title, &args.content);
+        serde_json::json!({ "topic_key": key }).to_string()
+    }
+
+    #[tool(
+        name = "igris_export",
+        description = "Export all memories and sessions as a JSON string. Useful for backup, migration between machines, or version control."
+    )]
+    fn igris_export(&self) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.export_all() {
+            Ok(data) => to_json(&data),
+            Err(e) => {
+                tracing::warn!(tool = "igris_export", error = %e, "db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(tool = "igris_export", duration_ms = start.elapsed().as_millis() as u64);
+        result
+    }
+
+    #[tool(
+        name = "igris_import",
+        description = "Import memories and sessions from a JSON export. Deduplicates by content hash — safe to run multiple times. Soft-deleted entries are skipped."
+    )]
+    fn igris_import(&self, Parameters(args): Parameters<ImportArgs>) -> String {
+        let start = Instant::now();
+        let data: crate::models::ExportData = match serde_json::from_str(&args.data) {
+            Ok(d) => d,
+            Err(e) => return err_json(IgrisError::validation(format!("Invalid JSON: {e}"))),
+        };
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.import_data(&data) {
+            Ok(r) => to_json(&r),
+            Err(e) => {
+                tracing::warn!(tool = "igris_import", error = %e, "import error");
+                err_json(e)
+            }
+        };
+        tracing::info!(tool = "igris_import", duration_ms = start.elapsed().as_millis() as u64);
+        result
+    }
+
+    #[tool(
+        name = "igris_purge",
+        description = "Permanently delete observations that were soft-deleted more than N days ago. Runs VACUUM to reclaim disk space. This action is irreversible."
+    )]
+    fn igris_purge(&self, Parameters(args): Parameters<PurgeArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.purge(args.older_than_days) {
+            Ok(r) => to_json(&r),
+            Err(e) => {
+                tracing::warn!(tool = "igris_purge", error = %e, "purge error");
+                err_json(e)
+            }
+        };
+        tracing::info!(tool = "igris_purge", duration_ms = start.elapsed().as_millis() as u64);
         result
     }
 

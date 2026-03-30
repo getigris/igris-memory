@@ -42,6 +42,38 @@ pub struct SearchResult {
     pub snippet: Option<String>,
 }
 
+/// Chronological view around an observation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Timeline {
+    pub anchor: Observation,
+    pub before: Vec<Observation>,
+    pub after: Vec<Observation>,
+}
+
+/// Full export of the memory store for backup/migration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportData {
+    pub version: u32,
+    pub exported_at: String,
+    pub observations: Vec<Observation>,
+    pub sessions: Vec<Session>,
+}
+
+/// Result of an import operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportResult {
+    pub observations_imported: i64,
+    pub observations_skipped: i64,
+    pub sessions_imported: i64,
+    pub sessions_skipped: i64,
+}
+
+/// Result of a purge operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PurgeResult {
+    pub observations_purged: i64,
+}
+
 /// Aggregate statistics about the memory store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stats {

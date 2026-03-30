@@ -5,6 +5,7 @@ mod models;
 mod schema;
 mod server;
 mod utils;
+mod topic;
 mod validation;
 
 use crate::cli::Cli;
