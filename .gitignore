@@ -1,2 +1,47 @@
-/target
+# Rust / Cargo
+/target/
+**/*.rs.bk
+*.pdb
+
+# Build artifacts
+*.d
+*.o
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*.exe
+
+# Cargo.lock is included for binaries, ignored for libraries
+# This is a binary project, so Cargo.lock should be committed
+# Cargo.lock
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Coverage and profiling
+*.profraw
+*.profdata
+lcov.info
+tarpaulin-report.html
+coverage/
+
+# Documentation build
+/target/doc/
+
+# Project specific
 /plans
+.claude/
