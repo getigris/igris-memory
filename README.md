@@ -67,6 +67,11 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ## How It Works
 
 ```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
 graph TB
     subgraph S1["🟣 Session 1 — Claude Code"]
         A1["igris_context\nLoad what we did before"]
@@ -86,45 +91,42 @@ graph TB
 
     DB[("🗄️ ~/.igris/memory.db\nSQLite + FTS5")]
 
-    A1 <-->|read| DB
-    A2 -->|write| DB
-    A3 -->|write| DB
-    B1 <-->|read| DB
-    B2 <-->|search| DB
-    C1 <-->|read| DB
-    C2 <-->|search| DB
+    A1 L_a1@<-->|read| DB
+    A2 L_a2@-->|write| DB
+    A3 L_a3@-->|write| DB
+    B1 L_b1@<-->|read| DB
+    B2 L_b2@<-->|search| DB
+    C1 L_c1@<-->|read| DB
+    C2 L_c2@<-->|search| DB
+
+    L_a1@{ animation: fast }
+    L_a2@{ animation: fast }
+    L_a3@{ animation: fast }
+    L_b1@{ animation: fast }
+    L_b2@{ animation: fast }
+    L_c1@{ animation: fast }
+    L_c2@{ animation: fast }
 
     style S1 fill:#7c3aed22,stroke:#7c3aed,stroke-width:2px,color:#7c3aed
     style S2 fill:#2563eb22,stroke:#2563eb,stroke-width:2px,color:#2563eb
     style S3 fill:#16a34a22,stroke:#16a34a,stroke-width:2px,color:#16a34a
     style DB fill:#f59e0b22,stroke:#f59e0b,stroke-width:3px,color:#f59e0b
-
-    style A1 fill:#7c3aed33,stroke:#7c3aed,color:#fff
-    style A2 fill:#7c3aed33,stroke:#7c3aed,color:#fff
-    style A3 fill:#7c3aed33,stroke:#7c3aed,color:#fff
-    style B1 fill:#2563eb33,stroke:#2563eb,color:#fff
-    style B2 fill:#2563eb33,stroke:#2563eb,color:#fff
-    style C1 fill:#16a34a33,stroke:#16a34a,color:#fff
-    style C2 fill:#16a34a33,stroke:#16a34a,color:#fff
-
-    linkStyle 0,1,2 stroke:#7c3aed,stroke-width:2px
-    linkStyle 3,4 stroke:#2563eb,stroke-width:2px
-    linkStyle 5,6 stroke:#16a34a,stroke-width:2px
 ```
 
 ## Session Lifecycle
 
 ```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
 graph LR
-    START["🚀 START\nigris_session_start\nigris_context"] --> DURING["⚡ DURING\nigris_save · igris_search\nSave decisions, bugs, patterns"]
-    DURING --> END_S["🏁 END\nigris_session_summary\nigris_session_end"]
+    START["🚀 START\nigris_session_start\nigris_context"] L_s1@--> DURING["⚡ DURING\nigris_save · igris_search\nSave decisions, bugs, patterns"]
+    DURING L_s2@--> END_S["🏁 END\nigris_session_summary\nigris_session_end"]
 
-    style START fill:#16a34a33,stroke:#16a34a,color:#fff,stroke-width:2px
-    style DURING fill:#2563eb33,stroke:#2563eb,color:#fff,stroke-width:2px
-    style END_S fill:#7c3aed33,stroke:#7c3aed,color:#fff,stroke-width:2px
-
-    linkStyle 0 stroke:#2563eb,stroke-width:2px
-    linkStyle 1 stroke:#7c3aed,stroke-width:2px
+    L_s1@{ animation: slow }
+    L_s2@{ animation: slow }
 ```
 
 ## MCP Tools (15)
@@ -178,19 +180,19 @@ graph LR
 Plans are a special memory type designed for execution tracking:
 
 ```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
 graph LR
-    A["📝 Create plan\nigris_save\ntype: plan\ntopic_key: plan/feature"] --> B["🔄 Update progress\nigris_save\nsame topic_key\nrevision_count++"]
-    B --> C["✅ Complete\nigris_delete\nsoft-delete"]
-    C --> D["🧹 Clean up\nigris_purge\npermanent removal"]
+    A["📝 Create plan\nigris_save\ntype: plan\ntopic_key: plan/feature"] L_p1@--> B["🔄 Update progress\nigris_save\nsame topic_key\nrevision_count++"]
+    B L_p2@--> C["✅ Complete\nigris_delete\nsoft-delete"]
+    C L_p3@--> D["🧹 Clean up\nigris_purge\npermanent removal"]
 
-    style A fill:#2563eb33,stroke:#2563eb,color:#fff,stroke-width:2px
-    style B fill:#f59e0b33,stroke:#f59e0b,color:#fff,stroke-width:2px
-    style C fill:#16a34a33,stroke:#16a34a,color:#fff,stroke-width:2px
-    style D fill:#6b728033,stroke:#6b7280,color:#fff,stroke-width:2px
-
-    linkStyle 0 stroke:#f59e0b,stroke-width:2px
-    linkStyle 1 stroke:#16a34a,stroke-width:2px
-    linkStyle 2 stroke:#6b7280,stroke-width:2px,stroke-dasharray:5
+    L_p1@{ animation: fast }
+    L_p2@{ animation: fast }
+    L_p3@{ animation: slow }
 ```
 
 ## Topic Keys
@@ -198,16 +200,17 @@ graph LR
 Topic keys group evolving knowledge. Saving with the same `topic_key` updates the existing memory instead of creating a duplicate:
 
 ```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
 graph LR
-    V1["v1 · JWT tokens\narchitecture/auth\nrevision: 1"] -->|"igris_save\nsame topic_key"| V2["v2 · OAuth2 + PKCE\narchitecture/auth\nrevision: 2"]
-    V2 -->|"igris_save\nsame topic_key"| V3["v3 · OAuth2 + PKCE + MFA\narchitecture/auth\nrevision: 3"]
+    V1["v1 · JWT tokens\narchitecture/auth\nrevision: 1"] L_t1@-->|"igris_save\nsame topic_key"| V2["v2 · OAuth2 + PKCE\narchitecture/auth\nrevision: 2"]
+    V2 L_t2@-->|"igris_save\nsame topic_key"| V3["v3 · OAuth2 + PKCE + MFA\narchitecture/auth\nrevision: 3"]
 
-    style V1 fill:#6b728033,stroke:#6b7280,color:#fff,stroke-width:1px,stroke-dasharray:5
-    style V2 fill:#2563eb33,stroke:#2563eb,color:#fff,stroke-width:1px,stroke-dasharray:5
-    style V3 fill:#16a34a33,stroke:#16a34a,color:#fff,stroke-width:2px
-
-    linkStyle 0 stroke:#2563eb,stroke-width:2px
-    linkStyle 1 stroke:#16a34a,stroke-width:2px
+    L_t1@{ animation: fast }
+    L_t2@{ animation: fast }
 ```
 
 Use `igris_suggest_topic_key` to generate consistent keys automatically.
@@ -217,13 +220,15 @@ Use `igris_suggest_topic_key` to generate consistent keys automatically.
 Wrap sensitive values in `<private>` tags — auto-redacted before storage:
 
 ```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
 graph LR
-    IN["📥 Input\nAPI key is sk-abc123"] -->|"&lt;private&gt; tags\nauto-redact"| OUT["🔒 Stored\nAPI key is [REDACTED]"]
+    IN["📥 Input\nAPI key is sk-abc123"] L_pr@-->|"auto-redact"| OUT["🔒 Stored\nAPI key is [REDACTED]"]
 
-    style IN fill:#ef444433,stroke:#ef4444,color:#fff,stroke-width:2px
-    style OUT fill:#16a34a33,stroke:#16a34a,color:#fff,stroke-width:2px
-
-    linkStyle 0 stroke:#f59e0b,stroke-width:2px
+    L_pr@{ animation: slow }
 ```
 
 ## Running Modes
@@ -263,6 +268,11 @@ IGRIS_LOG=debug igmem serve --port 7437
 ## Architecture
 
 ```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
 graph LR
     BIN["⚡ igmem\n~9 MB single binary"]
 
@@ -271,35 +281,29 @@ graph LR
     TUI["🖥️ TUI\nInteractive browser"]
     SYNC["🔄 Sync\nexport / import"]
 
-    BIN --> MCP
-    BIN --> HTTP
-    BIN --> TUI
-    BIN --> SYNC
+    BIN L_m@--> MCP
+    BIN L_h@--> HTTP
+    BIN L_t@--> TUI
+    BIN L_sy@--> SYNC
 
     subgraph storage["💾 Storage Layer"]
         DB1[("🌍 Global\n~/.igris/memory.db")]
         DB2[("📁 Per-project\n~/.igris/projects/{name}/memory.db")]
     end
 
-    MCP --> storage
-    HTTP --> storage
-    TUI --> storage
-    SYNC --> storage
+    MCP L_ms@--> storage
+    HTTP L_hs@--> storage
+    TUI L_ts@--> storage
+    SYNC L_ss@--> storage
 
-    style BIN fill:#7c3aed,stroke:#7c3aed,color:#fff,stroke-width:2px
-    style MCP fill:#2563eb33,stroke:#2563eb,color:#fff,stroke-width:2px
-    style HTTP fill:#16a34a33,stroke:#16a34a,color:#fff,stroke-width:2px
-    style TUI fill:#f59e0b33,stroke:#f59e0b,color:#fff,stroke-width:2px
-    style SYNC fill:#ec489933,stroke:#ec4899,color:#fff,stroke-width:2px
-    style storage fill:#f59e0b11,stroke:#f59e0b,stroke-width:2px,color:#f59e0b
-    style DB1 fill:#f59e0b33,stroke:#f59e0b,color:#fff
-    style DB2 fill:#f59e0b33,stroke:#f59e0b,color:#fff
-
-    linkStyle 0 stroke:#2563eb,stroke-width:2px
-    linkStyle 1 stroke:#16a34a,stroke-width:2px
-    linkStyle 2 stroke:#f59e0b,stroke-width:2px
-    linkStyle 3 stroke:#ec4899,stroke-width:2px
-    linkStyle 4,5,6,7 stroke:#f59e0b,stroke-width:2px,stroke-dasharray:5
+    L_m@{ animation: fast }
+    L_h@{ animation: fast }
+    L_t@{ animation: fast }
+    L_sy@{ animation: fast }
+    L_ms@{ animation: slow }
+    L_hs@{ animation: slow }
+    L_ts@{ animation: slow }
+    L_ss@{ animation: slow }
 ```
 
 ## Development
