@@ -38,7 +38,11 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
                 }
             }
             KeyCode::Up | KeyCode::Down => {
-                if key.code == KeyCode::Up { app.move_up(); } else { app.move_down(); }
+                if key.code == KeyCode::Up {
+                    app.move_up();
+                } else {
+                    app.move_down();
+                }
             }
             _ => {}
         }

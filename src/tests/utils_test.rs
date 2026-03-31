@@ -9,10 +9,7 @@ fn strips_single_private_tag() {
 #[test]
 fn strips_multiple_private_tags() {
     let input = "Key: <private>secret1</private> and <private>secret2</private>";
-    assert_eq!(
-        strip_private_tags(input),
-        "Key: [REDACTED] and [REDACTED]"
-    );
+    assert_eq!(strip_private_tags(input), "Key: [REDACTED] and [REDACTED]");
 }
 
 #[test]
@@ -47,7 +44,11 @@ fn strips_private_tag_multiline() {
     // Default regex . doesn't match newlines, so multiline private tags survive
     let input = "before <private>line1\nline2</private> after";
     // This depends on regex behavior — our regex uses .*? which is single-line by default
-    assert_eq!(strip_private_tags(input), input, "multiline private tags are not stripped (by design)");
+    assert_eq!(
+        strip_private_tags(input),
+        input,
+        "multiline private tags are not stripped (by design)"
+    );
 }
 
 #[test]
@@ -73,5 +74,8 @@ fn hash_empty_string() {
 fn hash_unicode_content() {
     let a = hash_content("认证设计 🔐");
     let b = hash_content("认证设计  🔐");
-    assert_eq!(a, b, "unicode with different whitespace should produce same hash");
+    assert_eq!(
+        a, b,
+        "unicode with different whitespace should produce same hash"
+    );
 }

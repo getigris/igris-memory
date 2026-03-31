@@ -78,7 +78,8 @@ fn cli_no_subcommand_is_mcp() {
 
 #[test]
 fn cli_serve_with_data_dir() {
-    let cli = Cli::try_parse_from(["igmem", "--data-dir", "/tmp/db", "serve", "--port", "9000"]).unwrap();
+    let cli =
+        Cli::try_parse_from(["igmem", "--data-dir", "/tmp/db", "serve", "--port", "9000"]).unwrap();
     assert_eq!(cli.data_dir, Some(PathBuf::from("/tmp/db")));
     match cli.command {
         Some(Command::Serve { port, .. }) => assert_eq!(port, 9000),
@@ -97,19 +98,31 @@ fn resolve_global_db_path() {
 
 #[test]
 fn resolve_scoped_with_project_name() {
-    let cli = Cli::try_parse_from(["igmem", "--data-dir", "/tmp/igris", "--project-scoped", "--project", "foo"]).unwrap();
+    let cli = Cli::try_parse_from([
+        "igmem",
+        "--data-dir",
+        "/tmp/igris",
+        "--project-scoped",
+        "--project",
+        "foo",
+    ])
+    .unwrap();
     let path = cli.resolve_db_path();
     assert_eq!(path, PathBuf::from("/tmp/igris/projects/foo/memory.db"));
 }
 
 #[test]
 fn resolve_scoped_defaults_to_cwd() {
-    let cli = Cli::try_parse_from(["igmem", "--data-dir", "/tmp/igris", "--project-scoped"]).unwrap();
+    let cli =
+        Cli::try_parse_from(["igmem", "--data-dir", "/tmp/igris", "--project-scoped"]).unwrap();
     let path = cli.resolve_db_path();
     // Should use the current directory's basename
     let cwd_name = std::env::current_dir().unwrap();
     let expected_name = cwd_name.file_name().unwrap().to_str().unwrap();
-    assert_eq!(path, PathBuf::from(format!("/tmp/igris/projects/{expected_name}/memory.db")));
+    assert_eq!(
+        path,
+        PathBuf::from(format!("/tmp/igris/projects/{expected_name}/memory.db"))
+    );
 }
 
 #[test]
@@ -129,15 +142,33 @@ fn cli_db_key_none_by_default() {
 
 #[test]
 fn project_flag_ignored_without_scoped() {
-    let cli = Cli::try_parse_from(["igmem", "--data-dir", "/tmp/igris", "--project", "foo"]).unwrap();
+    let cli =
+        Cli::try_parse_from(["igmem", "--data-dir", "/tmp/igris", "--project", "foo"]).unwrap();
     let path = cli.resolve_db_path();
-    assert_eq!(path, PathBuf::from("/tmp/igris/memory.db"), "--project without --project-scoped should use global DB");
+    assert_eq!(
+        path,
+        PathBuf::from("/tmp/igris/memory.db"),
+        "--project without --project-scoped should use global DB"
+    );
 }
 
 #[test]
 fn cli_scoped_with_db_key() {
-    let cli = Cli::try_parse_from(["igmem", "--data-dir", "/tmp/ig", "--project-scoped", "--project", "web", "--db-key", "secret"]).unwrap();
-    assert_eq!(cli.resolve_db_path(), PathBuf::from("/tmp/ig/projects/web/memory.db"));
+    let cli = Cli::try_parse_from([
+        "igmem",
+        "--data-dir",
+        "/tmp/ig",
+        "--project-scoped",
+        "--project",
+        "web",
+        "--db-key",
+        "secret",
+    ])
+    .unwrap();
+    assert_eq!(
+        cli.resolve_db_path(),
+        PathBuf::from("/tmp/ig/projects/web/memory.db")
+    );
     assert_eq!(cli.resolve_db_key(), Some("secret".to_string()));
 }
 
@@ -145,7 +176,9 @@ fn cli_scoped_with_db_key() {
 fn cli_sync_export_parses() {
     let cli = Cli::try_parse_from(["igmem", "sync", "export", "--dir", "/tmp/sync"]).unwrap();
     match cli.command {
-        Some(Command::Sync { action: SyncAction::Export { dir } }) => {
+        Some(Command::Sync {
+            action: SyncAction::Export { dir },
+        }) => {
             assert_eq!(dir, PathBuf::from("/tmp/sync"));
         }
         _ => panic!("expected Sync Export"),
@@ -156,7 +189,9 @@ fn cli_sync_export_parses() {
 fn cli_sync_import_parses() {
     let cli = Cli::try_parse_from(["igmem", "sync", "import", "--dir", "/tmp/sync"]).unwrap();
     match cli.command {
-        Some(Command::Sync { action: SyncAction::Import { dir } }) => {
+        Some(Command::Sync {
+            action: SyncAction::Import { dir },
+        }) => {
             assert_eq!(dir, PathBuf::from("/tmp/sync"));
         }
         _ => panic!("expected Sync Import"),

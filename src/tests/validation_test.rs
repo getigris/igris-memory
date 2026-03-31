@@ -23,7 +23,10 @@ fn whitespace_title_err() {
 #[test]
 fn valid_type_ok() {
     for t in VALID_TYPES {
-        assert!(validate_observation_type(t).is_ok(), "type '{t}' should be valid");
+        assert!(
+            validate_observation_type(t).is_ok(),
+            "type '{t}' should be valid"
+        );
     }
 }
 

@@ -11,7 +11,7 @@ impl Database {
             "SELECT id, session_id, type, title, content, project, scope,
                     topic_key, tags, revision_count, duplicate_count,
                     created_at, updated_at, deleted_at
-             FROM observations ORDER BY id"
+             FROM observations ORDER BY id",
         )?;
         let mut observations = Vec::new();
         let mut rows = stmt.query([])?;
@@ -21,7 +21,7 @@ impl Database {
 
         let mut stmt = self.conn.prepare(
             "SELECT id, project, directory, started_at, ended_at, summary
-             FROM sessions ORDER BY started_at"
+             FROM sessions ORDER BY started_at",
         )?;
         let mut sessions = Vec::new();
         let mut rows = stmt.query([])?;
@@ -65,7 +65,14 @@ impl Database {
             self.conn.execute(
                 "INSERT INTO sessions (id, project, directory, started_at, ended_at, summary)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![session.id, session.project, session.directory, session.started_at, session.ended_at, session.summary],
+                params![
+                    session.id,
+                    session.project,
+                    session.directory,
+                    session.started_at,
+                    session.ended_at,
+                    session.summary
+                ],
             )?;
             sess_imported += 1;
         }
@@ -94,7 +101,10 @@ impl Database {
                 continue;
             }
 
-            let tags_json = obs.tags.as_ref().map(|t| serde_json::to_string(t).unwrap_or_default());
+            let tags_json = obs
+                .tags
+                .as_ref()
+                .map(|t| serde_json::to_string(t).unwrap_or_default());
             self.conn.execute(
                 "INSERT INTO observations
                  (session_id, type, title, content, project, scope, topic_key,

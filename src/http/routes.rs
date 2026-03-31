@@ -11,8 +11,13 @@ use super::AppState;
 
 type Result<T> = std::result::Result<T, IgrisError>;
 
-fn lock_db(state: &AppState) -> std::result::Result<std::sync::MutexGuard<'_, crate::db::Database>, IgrisError> {
-    state.db.lock().map_err(|e| IgrisError::lock(format!("Mutex poisoned: {e}")))
+fn lock_db(
+    state: &AppState,
+) -> std::result::Result<std::sync::MutexGuard<'_, crate::db::Database>, IgrisError> {
+    state
+        .db
+        .lock()
+        .map_err(|e| IgrisError::lock(format!("Mutex poisoned: {e}")))
 }
 
 pub fn build(state: AppState) -> Router {
@@ -58,21 +63,35 @@ struct SaveBody {
     session_id: Option<String>,
 }
 
-fn default_type() -> String { "manual".to_string() }
-fn default_scope() -> String { "project".to_string() }
+fn default_type() -> String {
+    "manual".to_string()
+}
+fn default_scope() -> String {
+    "project".to_string()
+}
 
-async fn save_observation(State(state): State<AppState>, Json(body): Json<SaveBody>) -> Result<Json<Observation>> {
+async fn save_observation(
+    State(state): State<AppState>,
+    Json(body): Json<SaveBody>,
+) -> Result<Json<Observation>> {
     let db = lock_db(&state)?;
     let obs = db.save_observation(
-        &body.title, &body.content, &body.observation_type,
-        body.project.as_deref(), &body.scope,
-        body.topic_key.as_deref(), body.tags.as_deref(),
+        &body.title,
+        &body.content,
+        &body.observation_type,
+        body.project.as_deref(),
+        &body.scope,
+        body.topic_key.as_deref(),
+        body.tags.as_deref(),
         body.session_id.as_deref(),
     )?;
     Ok(Json(obs))
 }
 
-async fn get_observation(State(state): State<AppState>, Path(id): Path<i64>) -> Result<Json<Observation>> {
+async fn get_observation(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Observation>> {
     let db = lock_db(&state)?;
     let obs = db.get_observation(id)?;
     Ok(Json(obs))
@@ -95,18 +114,26 @@ async fn update_observation(
 ) -> Result<Json<Observation>> {
     let db = lock_db(&state)?;
     let obs = db.update_observation(
-        id, body.title.as_deref(), body.content.as_deref(),
-        body.observation_type.as_deref(), body.tags.as_deref(),
+        id,
+        body.title.as_deref(),
+        body.content.as_deref(),
+        body.observation_type.as_deref(),
+        body.tags.as_deref(),
         body.topic_key.as_deref(),
     )?;
     Ok(Json(obs))
 }
 
-async fn delete_observation(State(state): State<AppState>, Path(id): Path<i64>) -> Result<Json<serde_json::Value>> {
+async fn delete_observation(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<serde_json::Value>> {
     let db = lock_db(&state)?;
     match db.delete_observation(id)? {
         true => Ok(Json(serde_json::json!({"deleted": true}))),
-        false => Err(IgrisError::not_found(format!("Observation {id} not found or already deleted"))),
+        false => Err(IgrisError::not_found(format!(
+            "Observation {id} not found or already deleted"
+        ))),
     }
 }
 
@@ -121,9 +148,17 @@ struct SearchQuery {
     limit: Option<i64>,
 }
 
-async fn search(State(state): State<AppState>, Query(params): Query<SearchQuery>) -> Result<Json<Vec<SearchResult>>> {
+async fn search(
+    State(state): State<AppState>,
+    Query(params): Query<SearchQuery>,
+) -> Result<Json<Vec<SearchResult>>> {
     let db = lock_db(&state)?;
-    let results = db.search(&params.q, params.observation_type.as_deref(), params.project.as_deref(), params.limit)?;
+    let results = db.search(
+        &params.q,
+        params.observation_type.as_deref(),
+        params.project.as_deref(),
+        params.limit,
+    )?;
     Ok(Json(results))
 }
 
@@ -133,7 +168,10 @@ struct ContextQuery {
     limit: Option<i64>,
 }
 
-async fn context(State(state): State<AppState>, Query(params): Query<ContextQuery>) -> Result<Json<Vec<Observation>>> {
+async fn context(
+    State(state): State<AppState>,
+    Query(params): Query<ContextQuery>,
+) -> Result<Json<Vec<Observation>>> {
     let db = lock_db(&state)?;
     let obs = db.recent_context(params.project.as_deref(), params.limit)?;
     Ok(Json(obs))
@@ -186,7 +224,10 @@ async fn export(State(state): State<AppState>) -> Result<Json<ExportData>> {
     Ok(Json(data))
 }
 
-async fn import(State(state): State<AppState>, Json(data): Json<ExportData>) -> Result<Json<ImportResult>> {
+async fn import(
+    State(state): State<AppState>,
+    Json(data): Json<ExportData>,
+) -> Result<Json<ImportResult>> {
     let db = lock_db(&state)?;
     let result = db.import_data(&data)?;
     Ok(Json(result))
@@ -197,7 +238,10 @@ struct PurgeBody {
     older_than_days: i64,
 }
 
-async fn purge(State(state): State<AppState>, Json(body): Json<PurgeBody>) -> Result<Json<PurgeResult>> {
+async fn purge(
+    State(state): State<AppState>,
+    Json(body): Json<PurgeBody>,
+) -> Result<Json<PurgeResult>> {
     let db = lock_db(&state)?;
     let result = db.purge(body.older_than_days)?;
     Ok(Json(result))
@@ -212,7 +256,10 @@ struct SessionStartBody {
     directory: Option<String>,
 }
 
-async fn session_start(State(state): State<AppState>, Json(body): Json<SessionStartBody>) -> Result<Json<Session>> {
+async fn session_start(
+    State(state): State<AppState>,
+    Json(body): Json<SessionStartBody>,
+) -> Result<Json<Session>> {
     let db = lock_db(&state)?;
     let session = db.start_session(&body.id, &body.project, body.directory.as_deref())?;
     Ok(Json(session))
@@ -239,7 +286,10 @@ struct SessionSummaryBody {
     project: String,
 }
 
-async fn session_summary(State(state): State<AppState>, Json(body): Json<SessionSummaryBody>) -> Result<Json<Session>> {
+async fn session_summary(
+    State(state): State<AppState>,
+    Json(body): Json<SessionSummaryBody>,
+) -> Result<Json<Session>> {
     let db = lock_db(&state)?;
     let session = db.save_session_summary(&body.content, &body.project)?;
     Ok(Json(session))

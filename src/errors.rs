@@ -22,19 +22,31 @@ pub struct IgrisError {
 
 impl IgrisError {
     pub fn validation(msg: impl Into<String>) -> Self {
-        Self { error: msg.into(), code: ErrorCode::ValidationError }
+        Self {
+            error: msg.into(),
+            code: ErrorCode::ValidationError,
+        }
     }
 
     pub fn not_found(msg: impl Into<String>) -> Self {
-        Self { error: msg.into(), code: ErrorCode::NotFound }
+        Self {
+            error: msg.into(),
+            code: ErrorCode::NotFound,
+        }
     }
 
     pub fn database(msg: impl Into<String>) -> Self {
-        Self { error: msg.into(), code: ErrorCode::DatabaseError }
+        Self {
+            error: msg.into(),
+            code: ErrorCode::DatabaseError,
+        }
     }
 
     pub fn lock(msg: impl Into<String>) -> Self {
-        Self { error: msg.into(), code: ErrorCode::LockError }
+        Self {
+            error: msg.into(),
+            code: ErrorCode::LockError,
+        }
     }
 
     /// Serialize this error to a JSON string for MCP tool responses.

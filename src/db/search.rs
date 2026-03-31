@@ -1,9 +1,9 @@
 use crate::models::{Observation, SearchResult, Stats};
 use crate::validation;
-use rusqlite::{params, Result as SqlResult};
+use rusqlite::{Result as SqlResult, params};
 use std::collections::HashMap;
 
-use super::{Database, DbResult, DEFAULT_LIMIT};
+use super::{DEFAULT_LIMIT, Database, DbResult};
 
 impl Database {
     /// Full-text search across observations using FTS5.
@@ -52,9 +52,7 @@ impl Database {
             });
         }
 
-        let full_sql = format!(
-            "{sql}{conditions} ORDER BY fts.rank LIMIT {limit}"
-        );
+        let full_sql = format!("{sql}{conditions} ORDER BY fts.rank LIMIT {limit}");
 
         let mut stmt = self.conn.prepare(&full_sql)?;
 

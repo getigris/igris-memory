@@ -36,11 +36,7 @@ impl Database {
     }
 
     /// Save a session summary (can be called independently of end_session).
-    pub fn save_session_summary(
-        &self,
-        content: &str,
-        project: &str,
-    ) -> DbResult<Session> {
+    pub fn save_session_summary(&self, content: &str, project: &str) -> DbResult<Session> {
         validation::require_non_empty(content, "content")?;
         validation::require_non_empty(project, "project")?;
         let clean = strip_private_tags(content);

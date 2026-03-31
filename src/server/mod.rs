@@ -21,7 +21,8 @@ fn to_json<T: serde::Serialize>(value: &T) -> String {
 }
 
 fn lock_db(db: &Arc<Mutex<Database>>) -> Result<std::sync::MutexGuard<'_, Database>, IgrisError> {
-    db.lock().map_err(|e| IgrisError::lock(format!("Mutex poisoned: {e}")))
+    db.lock()
+        .map_err(|e| IgrisError::lock(format!("Mutex poisoned: {e}")))
 }
 
 fn err_json(e: IgrisError) -> String {
@@ -71,7 +72,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_save", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_save",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -97,7 +101,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_search", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_search",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -118,7 +125,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_get", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_get",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -146,7 +156,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_update", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_update",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -163,15 +176,25 @@ impl IgrisServer {
         let result = match db.delete_observation(args.id) {
             Ok(true) => r#"{"deleted": true}"#.to_string(),
             Ok(false) => {
-                tracing::warn!(tool = "igris_delete", id = args.id, "not found or already deleted");
-                err_json(IgrisError::not_found(format!("Observation {} not found or already deleted", args.id)))
+                tracing::warn!(
+                    tool = "igris_delete",
+                    id = args.id,
+                    "not found or already deleted"
+                );
+                err_json(IgrisError::not_found(format!(
+                    "Observation {} not found or already deleted",
+                    args.id
+                )))
             }
             Err(e) => {
                 tracing::warn!(tool = "igris_delete", error = %e, "db error");
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_delete", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_delete",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -192,7 +215,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_context", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_context",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -213,7 +239,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_stats", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_stats",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -234,7 +263,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_timeline", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_timeline",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -264,7 +296,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_export", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_export",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -289,7 +324,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_import", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_import",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -310,7 +348,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_purge", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_purge",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -331,7 +372,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_session_start", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_session_start",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -352,7 +396,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_session_end", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_session_end",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 
@@ -373,7 +420,10 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        tracing::info!(tool = "igris_session_summary", duration_ms = start.elapsed().as_millis() as u64);
+        tracing::info!(
+            tool = "igris_session_summary",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
         result
     }
 }

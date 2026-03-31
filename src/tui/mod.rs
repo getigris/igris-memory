@@ -4,8 +4,8 @@ mod ui;
 use crate::db::Database;
 use crate::models::{Observation, SearchResult, Stats};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::execute;
+use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::prelude::*;
 use std::io;
 
@@ -59,7 +59,10 @@ impl App {
             self.search_results.clear();
             return;
         }
-        self.search_results = self.db.search(&self.search_input, None, None, Some(50)).unwrap_or_default();
+        self.search_results = self
+            .db
+            .search(&self.search_input, None, None, Some(50))
+            .unwrap_or_default();
     }
 
     pub fn delete_selected(&mut self) -> bool {
@@ -100,7 +103,10 @@ impl App {
     pub fn selected_observation_id(&self) -> Option<i64> {
         match self.screen {
             Screen::List => self.observations.get(self.selected).map(|o| o.id),
-            Screen::Search => self.search_results.get(self.selected).map(|r| r.observation.id),
+            Screen::Search => self
+                .search_results
+                .get(self.selected)
+                .map(|r| r.observation.id),
             _ => None,
         }
     }

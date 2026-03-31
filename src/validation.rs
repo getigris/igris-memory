@@ -67,14 +67,24 @@ pub fn validate_update_has_fields(
     tags: Option<&[String]>,
     topic_key: Option<&str>,
 ) -> Result<(), String> {
-    if title.is_none() && content.is_none() && obs_type.is_none() && tags.is_none() && topic_key.is_none() {
+    if title.is_none()
+        && content.is_none()
+        && obs_type.is_none()
+        && tags.is_none()
+        && topic_key.is_none()
+    {
         return Err("Update requires at least one field to change".to_string());
     }
     Ok(())
 }
 
 /// Validate save observation inputs.
-pub fn validate_save(title: &str, content: &str, obs_type: &str, scope: &str) -> Result<(), String> {
+pub fn validate_save(
+    title: &str,
+    content: &str,
+    obs_type: &str,
+    scope: &str,
+) -> Result<(), String> {
     require_non_empty(title, "title")?;
     require_non_empty(content, "content")?;
     validate_observation_type(obs_type)?;

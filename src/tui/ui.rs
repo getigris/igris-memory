@@ -7,7 +7,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // tabs
+            Constraint::Length(3), // tabs
             Constraint::Min(5),    // content
             Constraint::Length(2), // footer
         ])
@@ -33,22 +33,34 @@ fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
         Screen::Stats => 2,
     };
     let tabs = Tabs::new(titles)
-        .block(Block::default().borders(Borders::ALL).title(" Igris Memory "))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Igris Memory "),
+        )
         .select(selected)
-        .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
     frame.render_widget(tabs, area);
 }
 
 fn draw_list(frame: &mut Frame, app: &App, area: Rect) {
-    let rows: Vec<Row> = app.observations.iter().map(|obs| {
-        Row::new(vec![
-            Cell::from(obs.id.to_string()),
-            Cell::from(obs.observation_type.as_str()),
-            Cell::from(obs.title.as_str()),
-            Cell::from(obs.project.as_deref().unwrap_or("-")),
-            Cell::from(obs.updated_at.as_str()),
-        ])
-    }).collect();
+    let rows: Vec<Row> = app
+        .observations
+        .iter()
+        .map(|obs| {
+            Row::new(vec![
+                Cell::from(obs.id.to_string()),
+                Cell::from(obs.observation_type.as_str()),
+                Cell::from(obs.title.as_str()),
+                Cell::from(obs.project.as_deref().unwrap_or("-")),
+                Cell::from(obs.updated_at.as_str()),
+            ])
+        })
+        .collect();
 
     let table = Table::new(
         rows,
@@ -87,7 +99,9 @@ fn draw_detail(frame: &mut Frame, app: &App, id: i64, area: Rect) {
         }
     };
 
-    let tags_str = obs.tags.as_ref()
+    let tags_str = obs
+        .tags
+        .as_ref()
         .map(|t| t.join(", "))
         .unwrap_or_else(|| "-".to_string());
 
@@ -125,11 +139,17 @@ fn draw_detail(frame: &mut Frame, app: &App, id: i64, area: Rect) {
             Span::styled("Revisions: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(obs.revision_count.to_string()),
             Span::raw("  "),
-            Span::styled("Duplicates: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Duplicates: ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
             Span::raw(obs.duplicate_count.to_string()),
         ]),
         Line::from(""),
-        Line::from(Span::styled("─── Content ───", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            "─── Content ───",
+            Style::default().fg(Color::DarkGray),
+        )),
         Line::from(""),
     ];
 
@@ -154,22 +174,33 @@ fn draw_search(frame: &mut Frame, app: &App, area: Rect) {
 
     // Search input
     let input = Paragraph::new(app.search_input.as_str())
-        .block(Block::default().borders(Borders::ALL).title(" Search (type to filter) "))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Search (type to filter) "),
+        )
         .style(Style::default().fg(Color::Yellow));
     frame.render_widget(input, chunks[0]);
     // Set cursor position
-    frame.set_cursor_position((chunks[0].x + app.search_input.len() as u16 + 1, chunks[0].y + 1));
+    frame.set_cursor_position((
+        chunks[0].x + app.search_input.len() as u16 + 1,
+        chunks[0].y + 1,
+    ));
 
     // Results
-    let rows: Vec<Row> = app.search_results.iter().map(|r| {
-        let obs = &r.observation;
-        Row::new(vec![
-            Cell::from(obs.id.to_string()),
-            Cell::from(obs.observation_type.as_str()),
-            Cell::from(obs.title.as_str()),
-            Cell::from(obs.project.as_deref().unwrap_or("-")),
-        ])
-    }).collect();
+    let rows: Vec<Row> = app
+        .search_results
+        .iter()
+        .map(|r| {
+            let obs = &r.observation;
+            Row::new(vec![
+                Cell::from(obs.id.to_string()),
+                Cell::from(obs.observation_type.as_str()),
+                Cell::from(obs.title.as_str()),
+                Cell::from(obs.project.as_deref().unwrap_or("-")),
+            ])
+        })
+        .collect();
 
     let table = Table::new(
         rows,
@@ -184,7 +215,11 @@ fn draw_search(frame: &mut Frame, app: &App, area: Rect) {
         Row::new(vec!["ID", "Type", "Title", "Project"])
             .style(Style::default().add_modifier(Modifier::BOLD)),
     )
-    .block(Block::default().borders(Borders::ALL).title(format!(" Results ({}) ", app.search_results.len())))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(format!(" Results ({}) ", app.search_results.len())),
+    )
     .row_highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan))
     .highlight_symbol("▶ ");
 
@@ -219,7 +254,10 @@ fn draw_stats(frame: &mut Frame, app: &App, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("Sessions: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(format!("{} total, {} active", stats.total_sessions, stats.active_sessions)),
+            Span::raw(format!(
+                "{} total, {} active",
+                stats.total_sessions, stats.active_sessions
+            )),
         ]),
         Line::from(""),
     ];
@@ -228,8 +266,8 @@ fn draw_stats(frame: &mut Frame, app: &App, area: Rect) {
     for (t, c) in &types {
         type_lines.push(Line::from(format!("  {t}: {c}")));
     }
-    let type_block = Paragraph::new(type_lines)
-        .block(Block::default().borders(Borders::ALL).title(" By Type "));
+    let type_block =
+        Paragraph::new(type_lines).block(Block::default().borders(Borders::ALL).title(" By Type "));
     frame.render_widget(type_block, chunks[0]);
 
     // By project
@@ -262,6 +300,8 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(Color::DarkGray)
     };
 
-    let footer = Paragraph::new(text).style(style).alignment(Alignment::Center);
+    let footer = Paragraph::new(text)
+        .style(style)
+        .alignment(Alignment::Center);
     frame.render_widget(footer, area);
 }

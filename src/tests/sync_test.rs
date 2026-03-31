@@ -1,13 +1,20 @@
-use crate::db::Database;
 use super::*;
+use crate::db::Database;
 
 fn test_db_with_data() -> Database {
     let db = Database::open_in_memory().unwrap();
     for i in 0..5 {
         db.save_observation(
-            &format!("Obs {i}"), &format!("Content {i}"),
-            "manual", Some("proj"), "project", None, None, None,
-        ).unwrap();
+            &format!("Obs {i}"),
+            &format!("Content {i}"),
+            "manual",
+            Some("proj"),
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
     }
     db.start_session("s1", "proj", Some("/code")).unwrap();
     db
@@ -54,7 +61,17 @@ fn import_reads_chunks() {
 #[test]
 fn sync_roundtrip() {
     let db1 = Database::open_in_memory().unwrap();
-    db1.save_observation("Auth", "JWT tokens", "decision", Some("web"), "project", Some("arch/auth"), Some(&["rust".to_string()]), None).unwrap();
+    db1.save_observation(
+        "Auth",
+        "JWT tokens",
+        "decision",
+        Some("web"),
+        "project",
+        Some("arch/auth"),
+        Some(&["rust".to_string()]),
+        None,
+    )
+    .unwrap();
     db1.start_session("s1", "web", None).unwrap();
 
     let dir = tempfile::tempdir().unwrap();
@@ -81,7 +98,17 @@ fn import_empty_dir_errors() {
 fn export_multi_chunk() {
     let db = Database::open_in_memory().unwrap();
     for i in 0..250 {
-        db.save_observation(&format!("Obs {i}"), &format!("Content {i}"), "manual", None, "project", None, None, None).unwrap();
+        db.save_observation(
+            &format!("Obs {i}"),
+            &format!("Content {i}"),
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
     }
 
     let dir = tempfile::tempdir().unwrap();

@@ -3,7 +3,7 @@ use crate::utils::{hash_content, now_utc, strip_private_tags};
 use crate::validation;
 use rusqlite::params;
 
-use super::{Database, DbResult, OptionalExt, DEDUPE_WINDOW_MINUTES};
+use super::{DEDUPE_WINDOW_MINUTES, Database, DbResult, OptionalExt};
 
 impl Database {
     /// Save a new observation with deduplication and topic-key upsert logic.

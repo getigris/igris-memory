@@ -1,5 +1,5 @@
-use crate::db::Database;
 use super::*;
+use crate::db::Database;
 
 fn test_app() -> App {
     let db = Database::open_in_memory().expect("failed to create in-memory db");
@@ -10,9 +10,16 @@ fn test_app_with_data() -> App {
     let db = Database::open_in_memory().expect("failed to create in-memory db");
     for i in 0..5 {
         db.save_observation(
-            &format!("Obs {i}"), &format!("Content {i}"),
-            "manual", Some("proj"), "project", None, None, None,
-        ).unwrap();
+            &format!("Obs {i}"),
+            &format!("Content {i}"),
+            "manual",
+            Some("proj"),
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
     }
     App::new(db)
 }
@@ -67,7 +74,11 @@ fn app_delete_marks_deleted() {
 
     let deleted = app.delete_selected();
     assert!(deleted);
-    assert_eq!(app.observations.len(), 4, "list should refresh after delete");
+    assert_eq!(
+        app.observations.len(),
+        4,
+        "list should refresh after delete"
+    );
 }
 
 #[test]

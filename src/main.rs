@@ -3,11 +3,11 @@ mod db;
 mod errors;
 mod http;
 mod models;
-mod tui;
 mod schema;
 mod server;
 mod sync;
 mod topic;
+mod tui;
 mod utils;
 mod validation;
 
@@ -51,29 +51,32 @@ async fn main() -> anyhow::Result<()> {
         Some(Command::Tui) => {
             tui::run(db)?;
         }
-        Some(Command::Sync { action }) => {
-            match action {
-                SyncAction::Export { dir } => {
-                    let manifest = sync::export_to_dir(&db, &dir)?;
-                    println!("Exported {} observations, {} sessions to {}",
-                        manifest.observation_count, manifest.session_count, dir.display());
-                }
-                SyncAction::Import { dir } => {
-                    let result = sync::import_from_dir(&db, &dir)?;
-                    println!("Imported: {} observations ({} skipped), {} sessions ({} skipped)",
-                        result.observations_imported, result.observations_skipped,
-                        result.sessions_imported, result.sessions_skipped);
-                }
+        Some(Command::Sync { action }) => match action {
+            SyncAction::Export { dir } => {
+                let manifest = sync::export_to_dir(&db, &dir)?;
+                println!(
+                    "Exported {} observations, {} sessions to {}",
+                    manifest.observation_count,
+                    manifest.session_count,
+                    dir.display()
+                );
             }
-        }
+            SyncAction::Import { dir } => {
+                let result = sync::import_from_dir(&db, &dir)?;
+                println!(
+                    "Imported: {} observations ({} skipped), {} sessions ({} skipped)",
+                    result.observations_imported,
+                    result.observations_skipped,
+                    result.sessions_imported,
+                    result.sessions_skipped
+                );
+            }
+        },
         None => {
             let server = IgrisServer::new(db);
-            let service = server
-                .serve(stdio())
-                .await
-                .inspect_err(|e| {
-                    tracing::error!("MCP serve error: {:?}", e);
-                })?;
+            let service = server.serve(stdio()).await.inspect_err(|e| {
+                tracing::error!("MCP serve error: {:?}", e);
+            })?;
             service.waiting().await?;
         }
     }

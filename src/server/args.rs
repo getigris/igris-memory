@@ -3,11 +3,17 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SaveArgs {
-    #[schemars(description = "Short descriptive title (e.g. 'Auth middleware design', 'Fix login null pointer')")]
+    #[schemars(
+        description = "Short descriptive title (e.g. 'Auth middleware design', 'Fix login null pointer')"
+    )]
     pub title: String,
-    #[schemars(description = "Full content — what happened, why, what was decided, and what to remember. Be detailed; this is what future sessions will read.")]
+    #[schemars(
+        description = "Full content — what happened, why, what was decided, and what to remember. Be detailed; this is what future sessions will read."
+    )]
     pub content: String,
-    #[schemars(description = "Memory category. Values: decision, architecture, bugfix, pattern, config, discovery, learning, plan, manual. Use 'plan' for execution plans (delete when done). Default: manual")]
+    #[schemars(
+        description = "Memory category. Values: decision, architecture, bugfix, pattern, config, discovery, learning, plan, manual. Use 'plan' for execution plans (delete when done). Default: manual"
+    )]
     #[serde(rename = "type", default = "default_type")]
     pub observation_type: String,
     #[schemars(description = "Project name this memory belongs to (e.g. 'web-api', 'mobile-app')")]
@@ -15,7 +21,9 @@ pub struct SaveArgs {
     #[schemars(description = "Visibility scope: 'project' (default) or 'personal'")]
     #[serde(default = "default_scope")]
     pub scope: String,
-    #[schemars(description = "Stable identifier for evolving knowledge (e.g. 'architecture/auth', 'plan/http-api'). Saving with an existing topic_key updates in place instead of creating a duplicate.")]
+    #[schemars(
+        description = "Stable identifier for evolving knowledge (e.g. 'architecture/auth', 'plan/http-api'). Saving with an existing topic_key updates in place instead of creating a duplicate."
+    )]
     pub topic_key: Option<String>,
     #[schemars(description = "Tags for categorization (e.g. ['rust', 'auth', 'jwt'])")]
     pub tags: Option<Vec<String>>,
@@ -25,9 +33,13 @@ pub struct SaveArgs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SearchArgs {
-    #[schemars(description = "Search query — use natural language or keywords (e.g. 'authentication JWT', 'database migration')")]
+    #[schemars(
+        description = "Search query — use natural language or keywords (e.g. 'authentication JWT', 'database migration')"
+    )]
     pub query: String,
-    #[schemars(description = "Filter by type: decision, architecture, bugfix, pattern, config, discovery, learning, plan, manual")]
+    #[schemars(
+        description = "Filter by type: decision, architecture, bugfix, pattern, config, discovery, learning, plan, manual"
+    )]
     #[serde(rename = "type")]
     pub observation_type: Option<String>,
     #[schemars(description = "Filter by project name")]
@@ -85,7 +97,9 @@ pub struct TimelineArgs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct PurgeArgs {
-    #[schemars(description = "Delete memories soft-deleted more than this many days ago. Use 0 to purge all.")]
+    #[schemars(
+        description = "Delete memories soft-deleted more than this many days ago. Use 0 to purge all."
+    )]
     pub older_than_days: i64,
 }
 
@@ -126,7 +140,9 @@ pub struct SessionEndArgs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SessionSummaryArgs {
-    #[schemars(description = "Structured summary — what was accomplished, key decisions, next steps. This is what the next session will read first.")]
+    #[schemars(
+        description = "Structured summary — what was accomplished, key decisions, next steps. This is what the next session will read first."
+    )]
     pub content: String,
     #[schemars(description = "Project name")]
     pub project: String,

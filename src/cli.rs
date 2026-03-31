@@ -91,14 +91,19 @@ impl Cli {
                     .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
                     .unwrap_or_else(|| "default".to_string())
             });
-            data_dir.join("projects").join(&project_name).join("memory.db")
+            data_dir
+                .join("projects")
+                .join(&project_name)
+                .join("memory.db")
         } else {
             data_dir.join("memory.db")
         }
     }
     /// Resolve the database encryption key: CLI flag > env var > None
     pub fn resolve_db_key(&self) -> Option<String> {
-        self.db_key.clone().or_else(|| std::env::var("IGRIS_DB_KEY").ok())
+        self.db_key
+            .clone()
+            .or_else(|| std::env::var("IGRIS_DB_KEY").ok())
     }
 }
 

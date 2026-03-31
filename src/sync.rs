@@ -66,7 +66,9 @@ pub fn import_from_dir(db: &Database, dir: &Path) -> Result<ImportResult, IgrisE
     // Read manifest
     let manifest_path = dir.join("manifest.json");
     if !manifest_path.exists() {
-        return Err(IgrisError::validation("Sync directory has no manifest.json"));
+        return Err(IgrisError::validation(
+            "Sync directory has no manifest.json",
+        ));
     }
     let manifest_str = std::fs::read_to_string(&manifest_path)
         .map_err(|e| IgrisError::database(format!("Failed to read manifest: {e}")))?;
