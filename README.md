@@ -66,29 +66,66 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ## How It Works
 
-```
-Session 1 (Claude Code)          Session 2 (ChatGPT)          Session 3 (Cursor)
-     │                                │                            │
-     ├─ igris_context ◄───────────────┤◄───────────────────────────┤
-     │  "Load what we did before"     │                            │
-     │                                │                            │
-     ├─ igris_save ──────────────────►├─ igris_search ────────────►├─ igris_context
-     │  decision: "Use PostgreSQL"    │  "What DB did we pick?"    │  "Load everything"
-     │                                │                            │
-     ├─ igris_session_summary ──────►│                            │
-     │  "Chose PG, set up schema"     │                            │
-     ▼                                ▼                            ▼
-                        ┌──────────────────────────┐
-                        │   ~/.igris/memory.db     │
-                        │   SQLite + FTS5          │
-                        └──────────────────────────┘
+```mermaid
+graph TB
+    subgraph S1["🟣 Session 1 — Claude Code"]
+        A1["igris_context\nLoad what we did before"]
+        A2["igris_save\ndecision: Use PostgreSQL"]
+        A3["igris_session_summary\nChose PG, set up schema"]
+    end
+
+    subgraph S2["🔵 Session 2 — ChatGPT"]
+        B1["igris_context\nLoad recent memories"]
+        B2["igris_search\nWhat DB did we pick?"]
+    end
+
+    subgraph S3["🟢 Session 3 — Cursor"]
+        C1["igris_context\nLoad everything"]
+        C2["igris_search\nFind architecture decisions"]
+    end
+
+    DB[("🗄️ ~/.igris/memory.db\nSQLite + FTS5")]
+
+    A1 <-->|read| DB
+    A2 -->|write| DB
+    A3 -->|write| DB
+    B1 <-->|read| DB
+    B2 <-->|search| DB
+    C1 <-->|read| DB
+    C2 <-->|search| DB
+
+    style S1 fill:#7c3aed22,stroke:#7c3aed,stroke-width:2px,color:#7c3aed
+    style S2 fill:#2563eb22,stroke:#2563eb,stroke-width:2px,color:#2563eb
+    style S3 fill:#16a34a22,stroke:#16a34a,stroke-width:2px,color:#16a34a
+    style DB fill:#f59e0b22,stroke:#f59e0b,stroke-width:3px,color:#f59e0b
+
+    style A1 fill:#7c3aed33,stroke:#7c3aed,color:#fff
+    style A2 fill:#7c3aed33,stroke:#7c3aed,color:#fff
+    style A3 fill:#7c3aed33,stroke:#7c3aed,color:#fff
+    style B1 fill:#2563eb33,stroke:#2563eb,color:#fff
+    style B2 fill:#2563eb33,stroke:#2563eb,color:#fff
+    style C1 fill:#16a34a33,stroke:#16a34a,color:#fff
+    style C2 fill:#16a34a33,stroke:#16a34a,color:#fff
+
+    linkStyle 0,1,2 stroke:#7c3aed,stroke-width:2px
+    linkStyle 3,4 stroke:#2563eb,stroke-width:2px
+    linkStyle 5,6 stroke:#16a34a,stroke-width:2px
 ```
 
 ## Session Lifecycle
 
-1. **START** — The AI calls `igris_context` to load recent memories
-2. **DURING** — The AI saves observations proactively as important things happen
-3. **END** — The AI calls `igris_session_summary` before the conversation ends
+```mermaid
+graph LR
+    START["🚀 START\nigris_session_start\nigris_context"] --> DURING["⚡ DURING\nigris_save · igris_search\nSave decisions, bugs, patterns"]
+    DURING --> END_S["🏁 END\nigris_session_summary\nigris_session_end"]
+
+    style START fill:#16a34a33,stroke:#16a34a,color:#fff,stroke-width:2px
+    style DURING fill:#2563eb33,stroke:#2563eb,color:#fff,stroke-width:2px
+    style END_S fill:#7c3aed33,stroke:#7c3aed,color:#fff,stroke-width:2px
+
+    linkStyle 0 stroke:#2563eb,stroke-width:2px
+    linkStyle 1 stroke:#7c3aed,stroke-width:2px
+```
 
 ## MCP Tools (15)
 
@@ -140,20 +177,37 @@ Session 1 (Claude Code)          Session 2 (ChatGPT)          Session 3 (Cursor)
 
 Plans are a special memory type designed for execution tracking:
 
-```
-1. Save plan → igris_save with type: "plan", topic_key: "plan/feature-name"
-2. Update progress → save again with same topic_key (updates in place)
-3. Complete → igris_delete to remove from active context
-4. Clean up → igris_purge to permanently remove old completed plans
+```mermaid
+graph LR
+    A["📝 Create plan\nigris_save\ntype: plan\ntopic_key: plan/feature"] --> B["🔄 Update progress\nigris_save\nsame topic_key\nrevision_count++"]
+    B --> C["✅ Complete\nigris_delete\nsoft-delete"]
+    C --> D["🧹 Clean up\nigris_purge\npermanent removal"]
+
+    style A fill:#2563eb33,stroke:#2563eb,color:#fff,stroke-width:2px
+    style B fill:#f59e0b33,stroke:#f59e0b,color:#fff,stroke-width:2px
+    style C fill:#16a34a33,stroke:#16a34a,color:#fff,stroke-width:2px
+    style D fill:#6b728033,stroke:#6b7280,color:#fff,stroke-width:2px
+
+    linkStyle 0 stroke:#f59e0b,stroke-width:2px
+    linkStyle 1 stroke:#16a34a,stroke-width:2px
+    linkStyle 2 stroke:#6b7280,stroke-width:2px,stroke-dasharray:5
 ```
 
 ## Topic Keys
 
 Topic keys group evolving knowledge. Saving with the same `topic_key` updates the existing memory instead of creating a duplicate:
 
-```
-First save:  topic_key: "architecture/auth" → "JWT tokens"
-Later save:  topic_key: "architecture/auth" → "OAuth2 + PKCE"  (revision_count: 2)
+```mermaid
+graph LR
+    V1["v1 · JWT tokens\narchitecture/auth\nrevision: 1"] -->|"igris_save\nsame topic_key"| V2["v2 · OAuth2 + PKCE\narchitecture/auth\nrevision: 2"]
+    V2 -->|"igris_save\nsame topic_key"| V3["v3 · OAuth2 + PKCE + MFA\narchitecture/auth\nrevision: 3"]
+
+    style V1 fill:#6b728033,stroke:#6b7280,color:#fff,stroke-width:1px,stroke-dasharray:5
+    style V2 fill:#2563eb33,stroke:#2563eb,color:#fff,stroke-width:1px,stroke-dasharray:5
+    style V3 fill:#16a34a33,stroke:#16a34a,color:#fff,stroke-width:2px
+
+    linkStyle 0 stroke:#2563eb,stroke-width:2px
+    linkStyle 1 stroke:#16a34a,stroke-width:2px
 ```
 
 Use `igris_suggest_topic_key` to generate consistent keys automatically.
@@ -162,9 +216,14 @@ Use `igris_suggest_topic_key` to generate consistent keys automatically.
 
 Wrap sensitive values in `<private>` tags — auto-redacted before storage:
 
-```
-Input:  "API key is <private>sk-abc123</private>"
-Stored: "API key is [REDACTED]"
+```mermaid
+graph LR
+    IN["📥 Input\nAPI key is sk-abc123"] -->|"&lt;private&gt; tags\nauto-redact"| OUT["🔒 Stored\nAPI key is [REDACTED]"]
+
+    style IN fill:#ef444433,stroke:#ef4444,color:#fff,stroke-width:2px
+    style OUT fill:#16a34a33,stroke:#16a34a,color:#fff,stroke-width:2px
+
+    linkStyle 0 stroke:#f59e0b,stroke-width:2px
 ```
 
 ## Running Modes
@@ -203,17 +262,44 @@ IGRIS_LOG=debug igmem serve --port 7437
 
 ## Architecture
 
-```
-Single binary (igmem, ~9 MB)
-    │
-    ├─ MCP stdio transport (default)
-    ├─ HTTP REST API (serve --port)
-    └─ TUI (tui)
-    │
-    ▼
-SQLite + FTS5 + SQLCipher
-    ~/.igris/memory.db                    (global)
-    ~/.igris/projects/{name}/memory.db    (per-project)
+```mermaid
+graph LR
+    BIN["⚡ igmem\n~9 MB single binary"]
+
+    MCP["🔌 MCP stdio\nClaude · Cursor · ChatGPT"]
+    HTTP["🌐 HTTP REST API\nserve --port 7437"]
+    TUI["🖥️ TUI\nInteractive browser"]
+    SYNC["🔄 Sync\nexport / import"]
+
+    BIN --> MCP
+    BIN --> HTTP
+    BIN --> TUI
+    BIN --> SYNC
+
+    subgraph storage["💾 Storage Layer"]
+        DB1[("🌍 Global\n~/.igris/memory.db")]
+        DB2[("📁 Per-project\n~/.igris/projects/{name}/memory.db")]
+    end
+
+    MCP --> storage
+    HTTP --> storage
+    TUI --> storage
+    SYNC --> storage
+
+    style BIN fill:#7c3aed,stroke:#7c3aed,color:#fff,stroke-width:2px
+    style MCP fill:#2563eb33,stroke:#2563eb,color:#fff,stroke-width:2px
+    style HTTP fill:#16a34a33,stroke:#16a34a,color:#fff,stroke-width:2px
+    style TUI fill:#f59e0b33,stroke:#f59e0b,color:#fff,stroke-width:2px
+    style SYNC fill:#ec489933,stroke:#ec4899,color:#fff,stroke-width:2px
+    style storage fill:#f59e0b11,stroke:#f59e0b,stroke-width:2px,color:#f59e0b
+    style DB1 fill:#f59e0b33,stroke:#f59e0b,color:#fff
+    style DB2 fill:#f59e0b33,stroke:#f59e0b,color:#fff
+
+    linkStyle 0 stroke:#2563eb,stroke-width:2px
+    linkStyle 1 stroke:#16a34a,stroke-width:2px
+    linkStyle 2 stroke:#f59e0b,stroke-width:2px
+    linkStyle 3 stroke:#ec4899,stroke-width:2px
+    linkStyle 4,5,6,7 stroke:#f59e0b,stroke-width:2px,stroke-dasharray:5
 ```
 
 ## Development
