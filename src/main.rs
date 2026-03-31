@@ -3,6 +3,7 @@ mod db;
 mod errors;
 mod http;
 mod models;
+mod tui;
 mod schema;
 mod server;
 mod topic;
@@ -43,6 +44,9 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Some(Command::Serve { port, host }) => {
             http::serve(db, &host, port).await?;
+        }
+        Some(Command::Tui) => {
+            tui::run(db)?;
         }
         None => {
             let server = IgrisServer::new(db);

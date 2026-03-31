@@ -25,6 +25,9 @@ pub enum Command {
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
     },
+
+    /// Launch the interactive terminal UI for browsing and managing memories.
+    Tui,
 }
 
 impl Cli {
