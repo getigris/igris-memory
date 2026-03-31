@@ -40,6 +40,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install OpenSSL (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install openssl --no-progress -y
+          echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >> $env:GITHUB_ENV
+
       - name: Install cross (Linux aarch64)
         if: matrix.cross
         run: cargo install cross --git https://github.com/cross-rs/cross
