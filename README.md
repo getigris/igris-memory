@@ -218,27 +218,17 @@ SQLite + FTS5 + SQLCipher
 
 ## Development
 
+See [DEVELOPMENT.md](DEVELOPMENT.md) for full architecture, module map, design patterns, cross-compilation, and release process.
+
 ```bash
-# Prerequisites
-rustup install stable  # Rust 1.94+
-
-# Setup (activate pre-commit hooks)
-git config core.hooksPath .githooks
-
-# Build
-cargo build --release
-
-# Test (171 tests)
-cargo test
-
-# Lint
-cargo clippy
-
-# Format
-cargo fmt
+rustup install stable                  # Rust 1.94+
+git config core.hooksPath .githooks    # Activate pre-commit hooks
+cargo build --release                  # Build
+cargo test                             # Test
+cargo clippy -- -D warnings            # Lint
 ```
 
-The pre-commit hook automatically runs `cargo fmt --check`, `cargo clippy`, and `cargo test` before each commit.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ## License
 
