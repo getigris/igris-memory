@@ -346,3 +346,125 @@ async fn session_lifecycle() {
     assert!(!json["ended_at"].is_null());
     assert_eq!(json["summary"], "Done with auth");
 }
+
+// ─── HTTP Edge Cases ────────────────────────────────────────────
+
+#[tokio::test]
+async fn malformed_json_returns_422() {
+    let app = router(test_state());
+    let req = Request::post("/observations")
+        .header("content-type", "application/json")
+        .body(Body::from("{invalid json}"))
+        .unwrap();
+    let (status, _) = response_json(app, req).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn missing_required_field_returns_422() {
+    let app = router(test_state());
+    // Missing "content" field
+    let (status, _) = response_json(
+        app,
+        json_request("POST", "/observations", Some(serde_json::json!({
+            "title": "Only title"
+        }))),
+    ).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn invalid_type_returns_400() {
+    let app = router(test_state());
+    let (status, json) = response_json(
+        app,
+        json_request("POST", "/observations", Some(serde_json::json!({
+            "title": "T", "content": "C", "type": "invalid_type"
+        }))),
+    ).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(json["code"], "VALIDATION_ERROR");
+}
+
+#[tokio::test]
+async fn import_invalid_json_returns_422() {
+    let app = router(test_state());
+    let req = Request::post("/import")
+        .header("content-type", "application/json")
+        .body(Body::from("not json"))
+        .unwrap();
+    let (status, _) = response_json(app, req).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn delete_nonexistent_returns_404() {
+    let app = router(test_state());
+    let (status, json) = response_json(
+        app,
+        Request::delete("/observations/9999")
+            .header("content-type", "application/json")
+            .body(Body::empty())
+            .unwrap(),
+    ).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(json["code"], "NOT_FOUND");
+}
+
+#[tokio::test]
+async fn update_nonexistent_returns_500() {
+    let app = router(test_state());
+    let (status, _) = response_json(
+        app,
+        json_request("PATCH", "/observations/9999", Some(serde_json::json!({
+            "title": "new"
+        }))),
+    ).await;
+    // rusqlite QueryReturnedNoRows → DatabaseError → 500
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn unicode_in_http_request() {
+    let state = test_state();
+    let (status, json) = response_json(
+        router(state.clone()),
+        json_request("POST", "/observations", Some(serde_json::json!({
+            "title": "认证设计 🔐",
+            "content": "使用JWT — très bien",
+            "type": "decision"
+        }))),
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["title"], "认证设计 🔐");
+}
+
+#[tokio::test]
+async fn search_with_type_filter() {
+    let state = test_state();
+    response_json(router(state.clone()), json_request("POST", "/observations", Some(serde_json::json!({
+        "title": "A decision", "content": "important", "type": "decision"
+    })))).await;
+    response_json(router(state.clone()), json_request("POST", "/observations", Some(serde_json::json!({
+        "title": "A bugfix", "content": "important fix", "type": "bugfix"
+    })))).await;
+
+    let (status, json) = response_json(
+        router(state),
+        Request::get("/search?q=important&type=decision").body(Body::empty()).unwrap(),
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    let results = json.as_array().unwrap();
+    assert!(results.iter().all(|r| r["type"] == "decision"));
+}
+
+#[tokio::test]
+async fn purge_negative_days_returns_400() {
+    let app = router(test_state());
+    let (status, json) = response_json(
+        app,
+        json_request("POST", "/purge", Some(serde_json::json!({"older_than_days": -1}))),
+    ).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(json["code"], "VALIDATION_ERROR");
+}

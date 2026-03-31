@@ -108,3 +108,14 @@ fn suggest_manual_topic() {
     let key = suggest_topic_key("manual", "Quick note about deploy", "...");
     assert_eq!(key, "note/quick-note-about-deploy");
 }
+
+#[test]
+fn family_for_plan() {
+    assert_eq!(type_to_family("plan"), "plan");
+}
+
+#[test]
+fn suggest_plan_topic() {
+    let key = suggest_topic_key("plan", "Implement HTTP API", "Add axum server...");
+    assert_eq!(key, "plan/implement-http-api");
+}

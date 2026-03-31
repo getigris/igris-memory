@@ -1,227 +1,224 @@
 # Igris Memory
 
-> Persistent memory server for AI coding agents. Single Rust binary. SQLite + FTS5. MCP protocol.
+> Persistent memory for AI agents. One binary. Works across Claude, ChatGPT, Cursor, and any MCP-compatible tool.
 
 [![License: Elastic-2.0](https://img.shields.io/badge/License-Elastic--2.0-blue.svg)](LICENSE)
 
 ---
 
-## What is Igris Memory?
+## Why?
 
-Igris Memory is an MCP (Model Context Protocol) server that gives AI coding agents persistent memory across sessions. It stores observations — decisions, architecture notes, bugfixes, patterns, and learnings — in a local SQLite database with full-text search.
+Every AI conversation starts from zero. Igris Memory fixes that by giving your AI assistant a persistent, searchable memory that works across sessions and providers.
 
-**Key features:**
-
-- **Deduplication** — identical content within a 15-minute window is counted, not duplicated
-- **Topic-key upsert** — evolving knowledge (e.g. `architecture/auth`) updates in place instead of creating new entries
-- **Privacy stripping** — wrap sensitive values in `<private>...</private>` tags and they're automatically redacted before storage
-- **Full-text search** — FTS5-powered search with relevance ranking and snippets
-- **Session tracking** — group observations by work sessions for context continuity
-- **Soft deletes** — data is never permanently removed, just excluded from queries
+- **No more repeating yourself** — decisions, patterns, and context survive between conversations
+- **Provider-agnostic** — same memory for Claude Code, ChatGPT, Cursor, or any MCP client
+- **Plans that clean up** — save execution plans, track progress, delete when done
+- **Privacy-first** — wrap secrets in `<private>` tags, auto-redacted before storage
 
 ## Quick Start
 
-### Build from source
-
 ```bash
-git clone https://github.com/getigris/igris-memory.git
-cd igris-memory
-cargo build --release
-```
+# Install
+curl -fsSL https://raw.githubusercontent.com/getigris/igris-memory/main/dist/install.sh | sh
 
-The binary will be at `target/release/igris-memory` (~7 MB).
+# Or build from source
+cargo install --path .
+```
 
 ### Configure with Claude Code
 
-Add to your MCP settings (`~/.claude/settings.json` or project `.claude/settings.json`):
+Add to `~/.claude/settings.json`:
 
 ```json
 {
   "mcpServers": {
     "igris-memory": {
-      "command": "/path/to/igris-memory"
+      "command": "igmem"
     }
   }
 }
 ```
 
-### Run standalone
+### Configure with Claude Desktop
 
-```bash
-# Uses default data directory ~/.igris/
-./target/release/igris-memory
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
-# Or specify a custom data directory
-IGRIS_DATA_DIR=/tmp/test-memory ./target/release/igris-memory
+```json
+{
+  "mcpServers": {
+    "igris-memory": {
+      "command": "/usr/local/bin/igmem"
+    }
+  }
+}
 ```
 
-## MCP Tools
+## How It Works
 
-Igris Memory exposes 10 tools via the MCP protocol:
+```
+Session 1 (Claude Code)          Session 2 (ChatGPT)          Session 3 (Cursor)
+     │                                │                            │
+     ├─ igris_context ◄───────────────┤◄───────────────────────────┤
+     │  "Load what we did before"     │                            │
+     │                                │                            │
+     ├─ igris_save ──────────────────►├─ igris_search ────────────►├─ igris_context
+     │  decision: "Use PostgreSQL"    │  "What DB did we pick?"    │  "Load everything"
+     │                                │                            │
+     ├─ igris_session_summary ──────►│                            │
+     │  "Chose PG, set up schema"     │                            │
+     ▼                                ▼                            ▼
+                        ┌──────────────────────────┐
+                        │   ~/.igris/memory.db     │
+                        │   SQLite + FTS5          │
+                        └──────────────────────────┘
+```
+
+## Session Lifecycle
+
+1. **START** — The AI calls `igris_context` to load recent memories
+2. **DURING** — The AI saves observations proactively as important things happen
+3. **END** — The AI calls `igris_session_summary` before the conversation ends
+
+## MCP Tools (15)
 
 ### Memory Operations
 
 | Tool | Description |
 |------|-------------|
-| `igris_save` | Save an observation with automatic deduplication, privacy stripping, and topic-key upsert |
-| `igris_search` | Full-text search across all memories with ranking and snippets |
-| `igris_get` | Retrieve a single observation by ID (full untruncated content) |
-| `igris_update` | Partial update — only provided fields are changed |
-| `igris_delete` | Soft-delete an observation (data kept but excluded from queries) |
-| `igris_context` | Load recent memories — call at session start for continuity |
-| `igris_stats` | Aggregate statistics: totals, counts by type and project |
+| `igris_save` | Save a memory. Called proactively when decisions are made, bugs are fixed, patterns emerge, or plans are created |
+| `igris_search` | Search memories by keyword or natural language. Returns ranked results with snippets |
+| `igris_get` | Get full content of a memory by ID |
+| `igris_update` | Update specific fields of an existing memory |
+| `igris_delete` | Soft-delete a memory (use for completed plans, outdated info) |
+| `igris_context` | Load recent memories. Called at the START of every conversation |
+| `igris_stats` | Memory store statistics by type and project |
+| `igris_timeline` | Chronological context around a specific memory |
+| `igris_suggest_topic_key` | Generate consistent keys for evolving knowledge |
+
+### Data Operations
+
+| Tool | Description |
+|------|-------------|
+| `igris_export` | Export all memories as JSON for backup |
+| `igris_import` | Import memories with automatic deduplication |
+| `igris_purge` | Permanently remove old soft-deleted memories |
 
 ### Session Management
 
 | Tool | Description |
 |------|-------------|
-| `igris_session_start` | Register the start of a working session |
-| `igris_session_end` | Mark a session as completed with optional summary |
-| `igris_session_summary` | Save a structured session summary — the most valuable memory for continuity |
+| `igris_session_start` | Register a new working session |
+| `igris_session_end` | Mark session complete with summary |
+| `igris_session_summary` | Save structured summary — most important memory for continuity |
 
-## Usage Examples
+## Memory Types
 
-### Save a decision
+| Type | When to use | Example |
+|------|------------|---------|
+| `decision` | User makes a choice | "Use PostgreSQL over MySQL" |
+| `architecture` | System design is created or changed | "Auth middleware uses JWT with RS256" |
+| `bugfix` | A bug is found and fixed | "Fix null pointer in login handler" |
+| `pattern` | A reusable pattern emerges | "Error handling: always wrap in Result<T, AppError>" |
+| `config` | Configuration is set up or changed | "Redis cluster with 3 nodes on port 6379" |
+| `discovery` | Something unexpected is learned | "SQLite FTS5 doesn't support prefix queries by default" |
+| `learning` | A concept is explained or understood | "Rust lifetimes ensure references are valid" |
+| `plan` | An execution plan is created | "1. Add axum 2. Create routes 3. Add tests" |
+| `manual` | User explicitly asks to remember | "Remember: deploy to staging before prod" |
 
-```json
-{
-  "tool": "igris_save",
-  "arguments": {
-    "title": "Auth middleware choice",
-    "content": "Chose JWT with RS256 for API auth. Considered session cookies but needed stateless verification for microservices.",
-    "type": "decision",
-    "project": "igris-api",
-    "topic_key": "architecture/auth"
-  }
-}
+## Plans
+
+Plans are a special memory type designed for execution tracking:
+
+```
+1. Save plan → igris_save with type: "plan", topic_key: "plan/feature-name"
+2. Update progress → save again with same topic_key (updates in place)
+3. Complete → igris_delete to remove from active context
+4. Clean up → igris_purge to permanently remove old completed plans
 ```
 
-### Search for relevant memories
+## Topic Keys
 
-```json
-{
-  "tool": "igris_search",
-  "arguments": {
-    "query": "authentication JWT",
-    "project": "igris-api",
-    "limit": 10
-  }
-}
+Topic keys group evolving knowledge. Saving with the same `topic_key` updates the existing memory instead of creating a duplicate:
+
+```
+First save:  topic_key: "architecture/auth" → "JWT tokens"
+Later save:  topic_key: "architecture/auth" → "OAuth2 + PKCE"  (revision_count: 2)
 ```
 
-### Load context at session start
+Use `igris_suggest_topic_key` to generate consistent keys automatically.
 
-```json
-{
-  "tool": "igris_context",
-  "arguments": {
-    "project": "igris-api",
-    "limit": 20
-  }
-}
+## Privacy
+
+Wrap sensitive values in `<private>` tags — auto-redacted before storage:
+
+```
+Input:  "API key is <private>sk-abc123</private>"
+Stored: "API key is [REDACTED]"
 ```
 
-### Save with sensitive data protection
+## Running Modes
 
-```json
-{
-  "tool": "igris_save",
-  "arguments": {
-    "title": "Database connection config",
-    "content": "PostgreSQL on port 5432, password is <private>super-secret-pw</private>",
-    "type": "config",
-    "project": "igris-api"
-  }
-}
+```bash
+# MCP server (default) — for Claude Code, Cursor, etc.
+igmem
+
+# HTTP REST API — for any HTTP client
+igmem serve --port 7437
+
+# Terminal UI — interactive browser
+igmem tui
+
+# Sync — export/import for backup or multi-machine
+igmem sync export --dir ./my-sync
+igmem sync import --dir ./my-sync
 ```
 
-The stored content will contain `[REDACTED]` instead of the password.
+## Options
 
-## Observation Types
+```bash
+# Custom data directory
+igmem --data-dir /path/to/data
 
-| Type | Use for |
-|------|---------|
-| `decision` | Architecture or design decisions with rationale |
-| `architecture` | System structure, component relationships |
-| `bugfix` | Bug descriptions, root causes, and fixes |
-| `pattern` | Recurring code patterns or conventions |
-| `config` | Configuration details and environment setup |
-| `discovery` | New findings about the codebase or tools |
-| `learning` | General learnings and insights |
-| `manual` | Default type for uncategorized observations |
+# Per-project isolated database
+igmem --project-scoped --project my-app
+
+# Encrypted database (SQLCipher)
+igmem --db-key "my-secret-key"
+# Or: IGRIS_DB_KEY=my-secret-key igmem
+
+# Custom log level
+IGRIS_LOG=debug igmem serve --port 7437
+```
 
 ## Architecture
 
 ```
-AI Agent (Claude Code, Cursor, etc.)
-    | stdio (JSON-RPC / MCP)
-    v
-Igris Memory (single Rust binary, ~7 MB)
-    |
-    v
-SQLite + FTS5 (~/.igris/memory.db)
+Single binary (igmem, ~9 MB)
+    │
+    ├─ MCP stdio transport (default)
+    ├─ HTTP REST API (serve --port)
+    └─ TUI (tui)
+    │
+    ▼
+SQLite + FTS5 + SQLCipher
+    ~/.igris/memory.db                    (global)
+    ~/.igris/projects/{name}/memory.db    (per-project)
 ```
-
-### Database Schema
-
-- **sessions** — tracks coding work periods (id, project, directory, timestamps, summary)
-- **observations** — core memory storage with deduplication and versioning
-- **observations_fts** — FTS5 virtual table, kept in sync via triggers
-
-### Key Logic
-
-1. **Privacy stripping:** `<private>value</private>` is replaced with `[REDACTED]` before persisting
-2. **Deduplication:** SHA-256 hash of normalized content; identical saves within 15 minutes increment a counter instead of creating duplicates
-3. **Topic-key upsert:** observations with the same `topic_key` + project + scope are updated in-place (revision count incremented)
-4. **Soft delete:** `deleted_at` is set instead of removing rows; data is always recoverable
-
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `IGRIS_DATA_DIR` | `~/.igris` | Directory where `memory.db` is stored |
-| `RUST_LOG` | `info` | Log level (trace, debug, info, warn, error) |
 
 ## Development
 
-### Prerequisites
-
-- Rust 1.82+ (edition 2024)
-
-### Build
-
 ```bash
-cargo build          # debug build
-cargo build --release  # optimized release build
-```
+# Prerequisites
+rustup install stable  # Rust 1.94+
 
-### Test
+# Build
+cargo build --release
 
-```bash
+# Test (171 tests)
 cargo test
-```
 
-13 tests covering:
-- Privacy tag stripping (single, multiple, none)
-- Content hashing (determinism, uniqueness)
-- Save and retrieve round-trip
-- Topic-key upsert behavior
-- Soft-delete mechanics
-- FTS5 search functionality
-- Context loading with limits
-- Session lifecycle (start, end, summary)
-- Statistics aggregation
-
-### Project Structure
-
-```
-src/
-  main.rs      — Entry point, data directory setup, MCP stdio transport
-  server.rs    — MCP tool definitions and handlers (10 tools)
-  db.rs        — Database operations (CRUD, search, sessions, dedup)
-  schema.rs    — SQLite DDL, FTS5 triggers, indices, pragmas
-  models.rs    — Data structures (Observation, Session, SearchResult, Stats)
-  utils.rs     — Privacy stripping, SHA-256 hashing, UTC timestamps
+# Lint
+cargo clippy
 ```
 
 ## License

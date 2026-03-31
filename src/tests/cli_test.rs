@@ -133,3 +133,32 @@ fn project_flag_ignored_without_scoped() {
     let path = cli.resolve_db_path();
     assert_eq!(path, PathBuf::from("/tmp/igris/memory.db"), "--project without --project-scoped should use global DB");
 }
+
+#[test]
+fn cli_scoped_with_db_key() {
+    let cli = Cli::try_parse_from(["igmem", "--data-dir", "/tmp/ig", "--project-scoped", "--project", "web", "--db-key", "secret"]).unwrap();
+    assert_eq!(cli.resolve_db_path(), PathBuf::from("/tmp/ig/projects/web/memory.db"));
+    assert_eq!(cli.resolve_db_key(), Some("secret".to_string()));
+}
+
+#[test]
+fn cli_sync_export_parses() {
+    let cli = Cli::try_parse_from(["igmem", "sync", "export", "--dir", "/tmp/sync"]).unwrap();
+    match cli.command {
+        Some(Command::Sync { action: SyncAction::Export { dir } }) => {
+            assert_eq!(dir, PathBuf::from("/tmp/sync"));
+        }
+        _ => panic!("expected Sync Export"),
+    }
+}
+
+#[test]
+fn cli_sync_import_parses() {
+    let cli = Cli::try_parse_from(["igmem", "sync", "import", "--dir", "/tmp/sync"]).unwrap();
+    match cli.command {
+        Some(Command::Sync { action: SyncAction::Import { dir } }) => {
+            assert_eq!(dir, PathBuf::from("/tmp/sync"));
+        }
+        _ => panic!("expected Sync Import"),
+    }
+}

@@ -47,7 +47,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_save",
-        description = "Save a memory (observation). Supports deduplication and topic-key upsert for evolving knowledge. Wrap sensitive values in <private>...</private> tags to auto-redact them."
+        description = "Save a memory. Call this proactively when the user makes a decision, discovers something, fixes a bug, creates a plan, or asks you to remember something. Use topic_key for evolving knowledge — same key updates in place instead of creating duplicates. Wrap secrets in <private>...</private> to auto-redact."
     )]
     fn igris_save(&self, Parameters(args): Parameters<SaveArgs>) -> String {
         let start = Instant::now();
@@ -77,7 +77,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_search",
-        description = "Full-text search across all memories. Returns ranked results with snippets. Use natural language or keywords."
+        description = "Search memories by keyword or natural language. Returns ranked results with snippets. Use this to find specific past decisions, patterns, or context before making recommendations."
     )]
     fn igris_search(&self, Parameters(args): Parameters<SearchArgs>) -> String {
         let start = Instant::now();
@@ -103,7 +103,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_get",
-        description = "Retrieve a single memory by ID. Returns the full untruncated content."
+        description = "Get the full content of a memory by ID. Use after search or context when you need the complete details of a specific observation."
     )]
     fn igris_get(&self, Parameters(args): Parameters<GetArgs>) -> String {
         let start = Instant::now();
@@ -124,7 +124,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_update",
-        description = "Update an existing memory. Only provided fields are changed."
+        description = "Update specific fields of an existing memory. Use for corrections. For evolving knowledge, prefer saving with the same topic_key instead."
     )]
     fn igris_update(&self, Parameters(args): Parameters<UpdateArgs>) -> String {
         let start = Instant::now();
@@ -152,7 +152,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_delete",
-        description = "Soft-delete a memory. The data is kept but excluded from searches and context."
+        description = "Soft-delete a memory. Use for completed plans, outdated info, or memories the user wants removed. Data is kept but excluded from search and context. Use igris_purge later to permanently clean up."
     )]
     fn igris_delete(&self, Parameters(args): Parameters<DeleteArgs>) -> String {
         let start = Instant::now();
@@ -177,7 +177,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_context",
-        description = "Load recent memories for context. Call this at the start of each session to recall what was done previously."
+        description = "Load recent memories. Call this at the START of every conversation to understand what was done in previous sessions. Returns observations ordered by most recently updated."
     )]
     fn igris_context(&self, Parameters(args): Parameters<ContextArgs>) -> String {
         let start = Instant::now();
@@ -198,7 +198,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_stats",
-        description = "Get memory store statistics: totals, counts by type, and counts by project."
+        description = "Get memory store statistics. Shows total memories, sessions, and breakdowns by type and project."
     )]
     fn igris_stats(&self) -> String {
         let start = Instant::now();
@@ -219,7 +219,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_timeline",
-        description = "Get a chronological view around a specific memory. Shows observations created before and after the anchor, useful for understanding the context in which a decision was made."
+        description = "View the chronological context around a memory. Shows what was saved before and after, useful to understand the sequence of decisions or events."
     )]
     fn igris_timeline(&self, Parameters(args): Parameters<TimelineArgs>) -> String {
         let start = Instant::now();
@@ -240,7 +240,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_suggest_topic_key",
-        description = "Suggest a stable topic_key for an observation based on its type and title. Use this to get a consistent key before saving, so related memories can be grouped and updated via topic-key upsert."
+        description = "Generate a consistent topic_key before saving. Ensures related memories share the same key for automatic grouping and in-place updates."
     )]
     fn igris_suggest_topic_key(&self, Parameters(args): Parameters<SuggestTopicKeyArgs>) -> String {
         let key = topic::suggest_topic_key(&args.observation_type, &args.title, &args.content);
@@ -249,7 +249,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_export",
-        description = "Export all memories and sessions as a JSON string. Useful for backup, migration between machines, or version control."
+        description = "Export all memories and sessions as JSON. Use for backup or migration between machines."
     )]
     fn igris_export(&self) -> String {
         let start = Instant::now();
@@ -270,7 +270,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_import",
-        description = "Import memories and sessions from a JSON export. Deduplicates by content hash — safe to run multiple times. Soft-deleted entries are skipped."
+        description = "Import memories from a JSON export. Deduplicates by content hash — safe to run multiple times."
     )]
     fn igris_import(&self, Parameters(args): Parameters<ImportArgs>) -> String {
         let start = Instant::now();
@@ -295,7 +295,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_purge",
-        description = "Permanently delete observations that were soft-deleted more than N days ago. Runs VACUUM to reclaim disk space. This action is irreversible."
+        description = "Permanently remove old soft-deleted memories. Use to clean up completed plans and outdated entries. Specify days threshold (0 = purge all deleted). Irreversible."
     )]
     fn igris_purge(&self, Parameters(args): Parameters<PurgeArgs>) -> String {
         let start = Instant::now();
@@ -316,7 +316,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_session_start",
-        description = "Register the start of a working session. Sessions group memories by time period."
+        description = "Register a new working session. Sessions group memories by time period and provide continuity between conversations."
     )]
     fn igris_session_start(&self, Parameters(args): Parameters<SessionStartArgs>) -> String {
         let start = Instant::now();
@@ -337,7 +337,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_session_end",
-        description = "Mark a session as completed. Optionally include a summary of what was accomplished."
+        description = "Mark a session as completed with an optional summary."
     )]
     fn igris_session_end(&self, Parameters(args): Parameters<SessionEndArgs>) -> String {
         let start = Instant::now();
@@ -358,7 +358,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_session_summary",
-        description = "Save a structured summary of the current session. This is the most valuable memory for continuity — the next session loads it via igris_context to know exactly what was done before."
+        description = "Save a structured summary of what was accomplished. This is the most important memory for continuity — the next session loads it via igris_context. Call this before ending the conversation."
     )]
     fn igris_session_summary(&self, Parameters(args): Parameters<SessionSummaryArgs>) -> String {
         let start = Instant::now();
@@ -383,10 +383,35 @@ impl ServerHandler for IgrisServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "Igris Memory — persistent memory for AI coding agents. \
-                 Use igris_save to store decisions, patterns, and learnings. \
-                 Use igris_search to find relevant memories. \
-                 Use igris_context at session start to load recent context.",
+                "You are connected to Igris Memory, a persistent memory store that survives across sessions \
+                 and works across different AI providers (Claude, ChatGPT, Cursor, etc.).\n\n\
+                 ## Session Lifecycle\n\
+                 1. START: Call igris_context to load recent memories. Review them to understand prior work.\n\
+                 2. DURING: Save observations proactively as important things happen.\n\
+                 3. END: Call igris_session_summary before the conversation ends.\n\n\
+                 ## When to Save\n\
+                 - User makes a decision → type: decision\n\
+                 - Architecture is designed or changed → type: architecture\n\
+                 - A bug is found and fixed → type: bugfix\n\
+                 - A reusable pattern emerges → type: pattern\n\
+                 - Configuration is set up or changed → type: config\n\
+                 - Something unexpected is discovered → type: discovery\n\
+                 - A concept is explained or understood → type: learning\n\
+                 - An execution plan is created → type: plan (delete when completed)\n\
+                 - User explicitly asks to remember something → type: manual\n\n\
+                 ## Plans\n\
+                 Save execution plans as type 'plan' with a topic_key like 'plan/feature-name'. \
+                 Update the plan via topic_key as it evolves. When complete, delete it with igris_delete.\n\n\
+                 ## Topic Keys\n\
+                 Use topic_key for knowledge that evolves. Same topic_key updates in place.\n\
+                 Example: 'architecture/auth' — first: 'JWT', later: 'OAuth2 + PKCE'.\n\
+                 Call igris_suggest_topic_key to generate consistent keys.\n\n\
+                 ## Privacy\n\
+                 Wrap sensitive values in <private>...</private> tags — auto-redacted before storage.\n\n\
+                 ## Search vs Context\n\
+                 - igris_search: find specific memories by keyword\n\
+                 - igris_context: load recent memories chronologically (use at session start)\n\
+                 - igris_timeline: see what happened before/after a specific memory",
             )
     }
 }

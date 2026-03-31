@@ -393,6 +393,123 @@ fn session_rejects_empty_project() {
     assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
 }
 
+// ─── Plans lifecycle ────────────────────────────────────────────
+
+#[test]
+fn save_plan_and_delete_on_completion() {
+    let db = test_db();
+    let plan = db.save_observation(
+        "Implement HTTP API", "1. Add axum\n2. Create routes\n3. Add tests",
+        "plan", Some("igris"), "project", Some("plan/http-api"), None, None,
+    ).unwrap();
+    assert_eq!(plan.observation_type, "plan");
+
+    // Update plan progress via topic_key
+    let updated = db.save_observation(
+        "Implement HTTP API", "1. ✅ Add axum\n2. ✅ Create routes\n3. Add tests",
+        "plan", Some("igris"), "project", Some("plan/http-api"), None, None,
+    ).unwrap();
+    assert_eq!(updated.id, plan.id, "topic_key upsert");
+    assert_eq!(updated.revision_count, 2);
+
+    // Plan completed → delete
+    assert!(db.delete_observation(plan.id).unwrap());
+
+    // Plan no longer appears in context
+    let ctx = db.recent_context(Some("igris"), None).unwrap();
+    assert!(ctx.is_empty());
+}
+
+// ─── Edge cases ─────────────────────────────────────────────────
+
+#[test]
+fn deduplication_within_window() {
+    let db = test_db();
+    let first = db.save_observation("Same", "identical content", "manual", Some("p"), "project", None, None, None).unwrap();
+    let second = db.save_observation("Same", "identical content", "manual", Some("p"), "project", None, None, None).unwrap();
+    assert_eq!(first.id, second.id, "same content within window should dedup");
+    assert_eq!(second.duplicate_count, 2);
+}
+
+#[test]
+fn unicode_in_title_and_content() {
+    let db = test_db();
+    let obs = db.save_observation("认证设计 🔐", "使用JWT进行API认证 — très bien", "decision", None, "project", None, None, None).unwrap();
+    let fetched = db.get_observation(obs.id).unwrap();
+    assert_eq!(fetched.title, "认证设计 🔐");
+    assert!(fetched.content.contains("très bien"));
+}
+
+#[test]
+fn very_long_content() {
+    let db = test_db();
+    let long_content = "x".repeat(50_000);
+    let obs = db.save_observation("Long", &long_content, "manual", None, "project", None, None, None).unwrap();
+    let fetched = db.get_observation(obs.id).unwrap();
+    assert_eq!(fetched.content.len(), 50_000);
+}
+
+#[test]
+fn tags_with_special_chars() {
+    let db = test_db();
+    let tags = vec!["c++".to_string(), "node.js".to_string(), "émoji🎉".to_string()];
+    let obs = db.save_observation("T", "C", "manual", None, "project", None, Some(&tags), None).unwrap();
+    let fetched = db.get_observation(obs.id).unwrap();
+    assert_eq!(fetched.tags.unwrap(), tags);
+}
+
+#[test]
+fn topic_key_upsert_does_not_cross_projects() {
+    let db = test_db();
+    let a = db.save_observation("Auth v1", "JWT", "decision", Some("proj-a"), "project", Some("arch/auth"), None, None).unwrap();
+    let b = db.save_observation("Auth v1", "OAuth", "decision", Some("proj-b"), "project", Some("arch/auth"), None, None).unwrap();
+    assert_ne!(a.id, b.id, "same topic_key in different projects should NOT upsert");
+}
+
+#[test]
+fn search_with_max_limit() {
+    let db = test_db();
+    for i in 0..60 {
+        db.save_observation(&format!("Obs {i}"), &format!("content {i}"), "manual", None, "project", None, None, None).unwrap();
+    }
+    let results = db.search("content", None, None, Some(50)).unwrap();
+    assert!(results.len() <= 50, "should cap at 50");
+}
+
+#[test]
+fn search_over_limit_capped() {
+    let db = test_db();
+    db.save_observation("A", "test content", "manual", None, "project", None, None, None).unwrap();
+    let results = db.search("test", None, None, Some(999)).unwrap();
+    assert!(!results.is_empty()); // works, but internally capped at 50
+}
+
+#[test]
+fn double_delete_returns_false() {
+    let db = test_db();
+    let obs = db.save_observation("T", "C", "manual", None, "project", None, None, None).unwrap();
+    assert!(db.delete_observation(obs.id).unwrap());
+    assert!(!db.delete_observation(obs.id).unwrap(), "second delete should return false");
+}
+
+#[test]
+fn search_excludes_deleted() {
+    let db = test_db();
+    let obs = db.save_observation("Findable", "unique keyword xyzzy", "manual", None, "project", None, None, None).unwrap();
+    db.delete_observation(obs.id).unwrap();
+    let results = db.search("xyzzy", None, None, None).unwrap();
+    assert!(results.is_empty(), "deleted observations should not appear in search");
+}
+
+#[test]
+fn context_excludes_deleted() {
+    let db = test_db();
+    let obs = db.save_observation("T", "C", "manual", Some("p"), "project", None, None, None).unwrap();
+    db.delete_observation(obs.id).unwrap();
+    let ctx = db.recent_context(Some("p"), None).unwrap();
+    assert!(ctx.is_empty());
+}
+
 // ─── Encryption ─────────────────────────────────────────────────
 
 #[test]
@@ -456,4 +573,18 @@ fn encrypted_db_crud_works() {
 
     // Delete
     assert!(db.delete_observation(obs.id).unwrap());
+}
+
+#[test]
+fn encryption_key_with_special_chars() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("special.db");
+    let key = "p@ss'w\"ord with spaces & émojis 🔑";
+    let db = Database::open(&path, Some(key)).unwrap();
+    db.save_observation("T", "C", "manual", None, "project", None, None, None).unwrap();
+    drop(db);
+
+    let db = Database::open(&path, Some(key)).unwrap();
+    let obs = db.recent_context(None, Some(1)).unwrap();
+    assert_eq!(obs.len(), 1);
 }

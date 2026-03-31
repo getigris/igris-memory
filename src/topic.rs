@@ -17,6 +17,7 @@ fn type_to_family(obs_type: &str) -> &str {
         "config" => "config",
         "discovery" => "discovery",
         "learning" => "learning",
+        "plan" => "plan",
         "manual" => "note",
         _ => "other",
     }

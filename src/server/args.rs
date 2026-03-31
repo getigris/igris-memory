@@ -3,21 +3,21 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SaveArgs {
-    #[schemars(description = "Short descriptive title for this memory")]
+    #[schemars(description = "Short descriptive title (e.g. 'Auth middleware design', 'Fix login null pointer')")]
     pub title: String,
-    #[schemars(description = "Full content of the memory — what happened, why, and what was learned")]
+    #[schemars(description = "Full content — what happened, why, what was decided, and what to remember. Be detailed; this is what future sessions will read.")]
     pub content: String,
-    #[schemars(description = "Category: decision, architecture, bugfix, pattern, config, discovery, learning, or manual")]
+    #[schemars(description = "Memory category. Values: decision, architecture, bugfix, pattern, config, discovery, learning, plan, manual. Use 'plan' for execution plans (delete when done). Default: manual")]
     #[serde(rename = "type", default = "default_type")]
     pub observation_type: String,
-    #[schemars(description = "Project name this memory belongs to")]
+    #[schemars(description = "Project name this memory belongs to (e.g. 'web-api', 'mobile-app')")]
     pub project: Option<String>,
-    #[schemars(description = "Visibility scope: project (default) or personal")]
+    #[schemars(description = "Visibility scope: 'project' (default) or 'personal'")]
     #[serde(default = "default_scope")]
     pub scope: String,
-    #[schemars(description = "Stable key for evolving topics (e.g. architecture/auth). Updates existing memory with same key")]
+    #[schemars(description = "Stable identifier for evolving knowledge (e.g. 'architecture/auth', 'plan/http-api'). Saving with an existing topic_key updates in place instead of creating a duplicate.")]
     pub topic_key: Option<String>,
-    #[schemars(description = "Optional tags for categorization")]
+    #[schemars(description = "Tags for categorization (e.g. ['rust', 'auth', 'jwt'])")]
     pub tags: Option<Vec<String>>,
     #[schemars(description = "Session ID to associate this memory with")]
     pub session_id: Option<String>,
@@ -25,48 +25,11 @@ pub struct SaveArgs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SearchArgs {
-    #[schemars(description = "Search query — natural language or keywords")]
+    #[schemars(description = "Search query — use natural language or keywords (e.g. 'authentication JWT', 'database migration')")]
     pub query: String,
-    #[schemars(description = "Filter by observation type")]
+    #[schemars(description = "Filter by type: decision, architecture, bugfix, pattern, config, discovery, learning, plan, manual")]
     #[serde(rename = "type")]
     pub observation_type: Option<String>,
-    #[schemars(description = "Filter by project name")]
-    pub project: Option<String>,
-    #[schemars(description = "Max results to return (default 20, max 50)")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct GetArgs {
-    #[schemars(description = "Observation ID")]
-    pub id: i64,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct UpdateArgs {
-    #[schemars(description = "Observation ID to update")]
-    pub id: i64,
-    #[schemars(description = "New title")]
-    pub title: Option<String>,
-    #[schemars(description = "New content")]
-    pub content: Option<String>,
-    #[schemars(description = "New type")]
-    #[serde(rename = "type")]
-    pub observation_type: Option<String>,
-    #[schemars(description = "New tags")]
-    pub tags: Option<Vec<String>>,
-    #[schemars(description = "New topic key")]
-    pub topic_key: Option<String>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct DeleteArgs {
-    #[schemars(description = "Observation ID to delete")]
-    pub id: i64,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct ContextArgs {
     #[schemars(description = "Filter by project name")]
     pub project: Option<String>,
     #[schemars(description = "Max results (default 20, max 50)")]
@@ -74,30 +37,67 @@ pub struct ContextArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetArgs {
+    #[schemars(description = "Memory ID to retrieve")]
+    pub id: i64,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct UpdateArgs {
+    #[schemars(description = "Memory ID to update")]
+    pub id: i64,
+    #[schemars(description = "New title (only if changing)")]
+    pub title: Option<String>,
+    #[schemars(description = "New content (only if changing)")]
+    pub content: Option<String>,
+    #[schemars(description = "New type (only if changing)")]
+    #[serde(rename = "type")]
+    pub observation_type: Option<String>,
+    #[schemars(description = "New tags (replaces existing)")]
+    pub tags: Option<Vec<String>>,
+    #[schemars(description = "New topic key (only if changing)")]
+    pub topic_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DeleteArgs {
+    #[schemars(description = "Memory ID to soft-delete")]
+    pub id: i64,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ContextArgs {
+    #[schemars(description = "Filter by project name (omit for all projects)")]
+    pub project: Option<String>,
+    #[schemars(description = "Max results (default 20, max 50)")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct TimelineArgs {
-    #[schemars(description = "Observation ID to center the timeline on")]
+    #[schemars(description = "Memory ID to center the timeline on")]
     pub observation_id: i64,
-    #[schemars(description = "Number of observations to show before the anchor (default 5, max 50)")]
+    #[schemars(description = "Memories to show before (default 5, max 50)")]
     pub before: Option<i64>,
-    #[schemars(description = "Number of observations to show after the anchor (default 5, max 50)")]
+    #[schemars(description = "Memories to show after (default 5, max 50)")]
     pub after: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct PurgeArgs {
-    #[schemars(description = "Permanently delete observations that were soft-deleted more than this many days ago. Use 0 to purge all soft-deleted entries.")]
+    #[schemars(description = "Delete memories soft-deleted more than this many days ago. Use 0 to purge all.")]
     pub older_than_days: i64,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ImportArgs {
-    #[schemars(description = "JSON string containing the exported data (from igris_export)")]
+    #[schemars(description = "JSON string from igris_export")]
     pub data: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SuggestTopicKeyArgs {
-    #[schemars(description = "Observation type (e.g. decision, architecture, bugfix)")]
+    #[schemars(description = "Observation type (e.g. decision, architecture, plan)")]
     #[serde(rename = "type")]
     pub observation_type: String,
     #[schemars(description = "Title of the observation")]
@@ -120,13 +120,13 @@ pub struct SessionStartArgs {
 pub struct SessionEndArgs {
     #[schemars(description = "Session ID to close")]
     pub id: String,
-    #[schemars(description = "Optional session summary")]
+    #[schemars(description = "Brief summary of what was accomplished")]
     pub summary: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SessionSummaryArgs {
-    #[schemars(description = "Structured summary of what was accomplished in this session")]
+    #[schemars(description = "Structured summary — what was accomplished, key decisions, next steps. This is what the next session will read first.")]
     pub content: String,
     #[schemars(description = "Project name")]
     pub project: String,

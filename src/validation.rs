@@ -7,6 +7,7 @@ pub const VALID_TYPES: &[&str] = &[
     "config",
     "discovery",
     "learning",
+    "plan",
     "manual",
 ];
 
