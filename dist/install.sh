@@ -68,21 +68,21 @@ install() {
     echo "  Extracting..."
     tar xzf "$TMP/$FILENAME" -C "$TMP"
 
-    echo "  Installing to $INSTALL_DIR/igris-memory"
+    echo "  Installing to $INSTALL_DIR/igmem"
     if [ -w "$INSTALL_DIR" ]; then
-        mv "$TMP/igris-memory" "$INSTALL_DIR/igris-memory"
+        mv "$TMP/igmem" "$INSTALL_DIR/igmem"
     else
-        sudo mv "$TMP/igris-memory" "$INSTALL_DIR/igris-memory"
+        sudo mv "$TMP/igmem" "$INSTALL_DIR/igmem"
     fi
-    chmod +x "$INSTALL_DIR/igris-memory"
+    chmod +x "$INSTALL_DIR/igmem"
 
     echo ""
-    echo "Done! igris-memory $VERSION installed to $INSTALL_DIR/igris-memory"
+    echo "Done! igmem $VERSION installed to $INSTALL_DIR/igmem"
     echo ""
     echo "Add to Claude Code (~/.claude/settings.json):"
     echo '  "mcpServers": {'
     echo '    "igris-memory": {'
-    echo "      \"command\": \"$INSTALL_DIR/igris-memory\""
+    echo "      \"command\": \"$INSTALL_DIR/igmem\""
     echo '    }'
     echo '  }'
 }

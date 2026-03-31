@@ -22,10 +22,10 @@ class IgrisMemory < Formula
   end
 
   def install
-    bin.install "igris-memory"
+    bin.install "igmem"
   end
 
   test do
-    assert_match "igris-memory", shell_output("#{bin}/igris-memory --version")
+    assert_match "igmem", shell_output("#{bin}/igmem --version")
   end
 end

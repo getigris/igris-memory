@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 /// Igris Memory — persistent memory server for AI coding agents.
 #[derive(Parser, Debug)]
-#[command(name = "igris-memory", version, about)]
+#[command(name = "igmem", version, about)]
 pub struct Cli {
     /// Override the data directory (default: ~/.igris or $IGRIS_DATA_DIR)
     #[arg(long = "data-dir", value_name = "PATH")]

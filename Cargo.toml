@@ -7,6 +7,10 @@ license = "Elastic-2.0"
 repository = "https://github.com/getigris/igris-memory"
 readme = "README.md"
 
+[[bin]]
+name = "igmem"
+path = "src/main.rs"
+
 [dependencies]
 rmcp = { version = "1.3", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["full"] }
