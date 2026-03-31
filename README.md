@@ -66,29 +66,68 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ## How It Works
 
-```
-Session 1 (Claude Code)          Session 2 (ChatGPT)          Session 3 (Cursor)
-     │                                │                            │
-     ├─ igris_context ◄───────────────┤◄───────────────────────────┤
-     │  "Load what we did before"     │                            │
-     │                                │                            │
-     ├─ igris_save ──────────────────►├─ igris_search ────────────►├─ igris_context
-     │  decision: "Use PostgreSQL"    │  "What DB did we pick?"    │  "Load everything"
-     │                                │                            │
-     ├─ igris_session_summary ──────►│                            │
-     │  "Chose PG, set up schema"     │                            │
-     ▼                                ▼                            ▼
-                        ┌──────────────────────────┐
-                        │   ~/.igris/memory.db     │
-                        │   SQLite + FTS5          │
-                        └──────────────────────────┘
+```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
+graph TB
+    subgraph S1["🟣 Session 1 — Claude Code"]
+        A1["igris_context\nLoad what we did before"]
+        A2["igris_save\ndecision: Use PostgreSQL"]
+        A3["igris_session_summary\nChose PG, set up schema"]
+    end
+
+    subgraph S2["🔵 Session 2 — ChatGPT"]
+        B1["igris_context\nLoad recent memories"]
+        B2["igris_search\nWhat DB did we pick?"]
+    end
+
+    subgraph S3["🟢 Session 3 — Cursor"]
+        C1["igris_context\nLoad everything"]
+        C2["igris_search\nFind architecture decisions"]
+    end
+
+    DB[("🗄️ ~/.igris/memory.db\nSQLite + FTS5")]
+
+    A1 L_a1@<-->|read| DB
+    A2 L_a2@-->|write| DB
+    A3 L_a3@-->|write| DB
+    B1 L_b1@<-->|read| DB
+    B2 L_b2@<-->|search| DB
+    C1 L_c1@<-->|read| DB
+    C2 L_c2@<-->|search| DB
+
+    L_a1@{ animation: fast }
+    L_a2@{ animation: fast }
+    L_a3@{ animation: fast }
+    L_b1@{ animation: fast }
+    L_b2@{ animation: fast }
+    L_c1@{ animation: fast }
+    L_c2@{ animation: fast }
+
+    style S1 fill:#7c3aed22,stroke:#7c3aed,stroke-width:2px,color:#7c3aed
+    style S2 fill:#2563eb22,stroke:#2563eb,stroke-width:2px,color:#2563eb
+    style S3 fill:#16a34a22,stroke:#16a34a,stroke-width:2px,color:#16a34a
+    style DB fill:#f59e0b22,stroke:#f59e0b,stroke-width:3px,color:#f59e0b
 ```
 
 ## Session Lifecycle
 
-1. **START** — The AI calls `igris_context` to load recent memories
-2. **DURING** — The AI saves observations proactively as important things happen
-3. **END** — The AI calls `igris_session_summary` before the conversation ends
+```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
+graph LR
+    START["🚀 START\nigris_session_start\nigris_context"] L_s1@--> DURING["⚡ DURING\nigris_save · igris_search\nSave decisions, bugs, patterns"]
+    DURING L_s2@--> END_S["🏁 END\nigris_session_summary\nigris_session_end"]
+
+    L_s1@{ animation: slow }
+    L_s2@{ animation: slow }
+```
 
 ## MCP Tools (15)
 
@@ -140,20 +179,38 @@ Session 1 (Claude Code)          Session 2 (ChatGPT)          Session 3 (Cursor)
 
 Plans are a special memory type designed for execution tracking:
 
-```
-1. Save plan → igris_save with type: "plan", topic_key: "plan/feature-name"
-2. Update progress → save again with same topic_key (updates in place)
-3. Complete → igris_delete to remove from active context
-4. Clean up → igris_purge to permanently remove old completed plans
+```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
+graph LR
+    A["📝 Create plan\nigris_save\ntype: plan\ntopic_key: plan/feature"] L_p1@--> B["🔄 Update progress\nigris_save\nsame topic_key\nrevision_count++"]
+    B L_p2@--> C["✅ Complete\nigris_delete\nsoft-delete"]
+    C L_p3@--> D["🧹 Clean up\nigris_purge\npermanent removal"]
+
+    L_p1@{ animation: fast }
+    L_p2@{ animation: fast }
+    L_p3@{ animation: slow }
 ```
 
 ## Topic Keys
 
 Topic keys group evolving knowledge. Saving with the same `topic_key` updates the existing memory instead of creating a duplicate:
 
-```
-First save:  topic_key: "architecture/auth" → "JWT tokens"
-Later save:  topic_key: "architecture/auth" → "OAuth2 + PKCE"  (revision_count: 2)
+```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
+graph LR
+    V1["v1 · JWT tokens\narchitecture/auth\nrevision: 1"] L_t1@-->|"igris_save\nsame topic_key"| V2["v2 · OAuth2 + PKCE\narchitecture/auth\nrevision: 2"]
+    V2 L_t2@-->|"igris_save\nsame topic_key"| V3["v3 · OAuth2 + PKCE + MFA\narchitecture/auth\nrevision: 3"]
+
+    L_t1@{ animation: fast }
+    L_t2@{ animation: fast }
 ```
 
 Use `igris_suggest_topic_key` to generate consistent keys automatically.
@@ -162,9 +219,16 @@ Use `igris_suggest_topic_key` to generate consistent keys automatically.
 
 Wrap sensitive values in `<private>` tags — auto-redacted before storage:
 
-```
-Input:  "API key is <private>sk-abc123</private>"
-Stored: "API key is [REDACTED]"
+```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
+graph LR
+    IN["📥 Input\nAPI key is sk-abc123"] L_pr@-->|"auto-redact"| OUT["🔒 Stored\nAPI key is [REDACTED]"]
+
+    L_pr@{ animation: slow }
 ```
 
 ## Running Modes
@@ -203,42 +267,58 @@ IGRIS_LOG=debug igmem serve --port 7437
 
 ## Architecture
 
-```
-Single binary (igmem, ~9 MB)
-    │
-    ├─ MCP stdio transport (default)
-    ├─ HTTP REST API (serve --port)
-    └─ TUI (tui)
-    │
-    ▼
-SQLite + FTS5 + SQLCipher
-    ~/.igris/memory.db                    (global)
-    ~/.igris/projects/{name}/memory.db    (per-project)
+```mermaid
+---
+config:
+  theme: neo
+  look: hand-drawn
+---
+graph LR
+    BIN["⚡ igmem\n~9 MB single binary"]
+
+    MCP["🔌 MCP stdio\nClaude · Cursor · ChatGPT"]
+    HTTP["🌐 HTTP REST API\nserve --port 7437"]
+    TUI["🖥️ TUI\nInteractive browser"]
+    SYNC["🔄 Sync\nexport / import"]
+
+    BIN L_m@--> MCP
+    BIN L_h@--> HTTP
+    BIN L_t@--> TUI
+    BIN L_sy@--> SYNC
+
+    subgraph storage["💾 Storage Layer"]
+        DB1[("🌍 Global\n~/.igris/memory.db")]
+        DB2[("📁 Per-project\n~/.igris/projects/{name}/memory.db")]
+    end
+
+    MCP L_ms@--> storage
+    HTTP L_hs@--> storage
+    TUI L_ts@--> storage
+    SYNC L_ss@--> storage
+
+    L_m@{ animation: fast }
+    L_h@{ animation: fast }
+    L_t@{ animation: fast }
+    L_sy@{ animation: fast }
+    L_ms@{ animation: slow }
+    L_hs@{ animation: slow }
+    L_ts@{ animation: slow }
+    L_ss@{ animation: slow }
 ```
 
 ## Development
 
+See [DEVELOPMENT.md](DEVELOPMENT.md) for full architecture, module map, design patterns, cross-compilation, and release process.
+
 ```bash
-# Prerequisites
-rustup install stable  # Rust 1.94+
-
-# Setup (activate pre-commit hooks)
-git config core.hooksPath .githooks
-
-# Build
-cargo build --release
-
-# Test (171 tests)
-cargo test
-
-# Lint
-cargo clippy
-
-# Format
-cargo fmt
+rustup install stable                  # Rust 1.94+
+git config core.hooksPath .githooks    # Activate pre-commit hooks
+cargo build --release                  # Build
+cargo test                             # Test
+cargo clippy -- -D warnings            # Lint
 ```
 
-The pre-commit hook automatically runs `cargo fmt --check`, `cargo clippy`, and `cargo test` before each commit.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ## License
 

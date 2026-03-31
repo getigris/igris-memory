@@ -1,0 +1,80 @@
+name: Bug Report
+description: Report a bug in Igris Memory
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the sections below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the unexpected behavior.
+      placeholder: "When I call igris_search with..., it returns..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Describe the correct behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, commands, or a test case.
+      placeholder: |
+        1. Run `igmem serve --port 7437`
+        2. Send POST to /save with body...
+        3. Observe error...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Running mode
+      options:
+        - MCP stdio (default)
+        - HTTP REST API (serve)
+        - TUI
+        - Sync (export/import)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: MCP client (if applicable)
+      options:
+        - Claude Code
+        - Claude Desktop
+        - Cursor
+        - ChatGPT
+        - Other
+        - N/A
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, Rust version, igmem version.
+      placeholder: |
+        - OS: macOS 15.3 (ARM64)
+        - igmem: 0.1.0
+        - rustc: 1.94.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      description: Paste any relevant logs. Run with `IGRIS_LOG=debug` for more detail.
+      render: shell

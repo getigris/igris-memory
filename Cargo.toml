@@ -1,11 +1,15 @@
 [package]
 name = "igris-memory"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Persistent memory server for AI coding agents"
 license = "Elastic-2.0"
 repository = "https://github.com/getigris/igris-memory"
+homepage = "https://www.getigris.com"
 readme = "README.md"
+authors = ["Alexander Diaz <hello@getigris.com>"]
+keywords = ["mcp", "ai", "memory", "agent", "sqlite"]
+categories = ["development-tools", "command-line-utilities", "database"]
 
 [[bin]]
 name = "igmem"
