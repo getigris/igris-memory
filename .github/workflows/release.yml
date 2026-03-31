@@ -58,7 +58,7 @@ jobs:
 
       - name: Install cross (Linux aarch64)
         if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --tag v0.2.5
 
       - name: Build release binary
         run: |
@@ -109,7 +109,7 @@ jobs:
           cat checksums-sha256.txt
 
       - name: Create release
-        uses: ncipollo/release-action@v1
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1
         with:
           generateReleaseNotes: true
           artifacts: "artifacts/igris-memory-*.tar.gz,artifacts/igris-memory-*.zip,artifacts/checksums-sha256.txt"
@@ -150,7 +150,7 @@ jobs:
           cat ./igris-memory.rb
 
       - name: Push to homebrew-tap
-        uses: dmnemec/copy_file_to_another_repo_action@main
+        uses: dmnemec/copy_file_to_another_repo_action@bbebd3da22e4a37d04dca5f782edd5201cb97083 # main
         env:
           API_TOKEN_GITHUB: ${{ secrets.TAP_GITHUB_TOKEN }}
         with:

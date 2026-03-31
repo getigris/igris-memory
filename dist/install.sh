@@ -56,6 +56,7 @@ get_latest_version() {
 install() {
     FILENAME="igris-memory-${TARGET}.${EXT}"
     URL="https://github.com/$REPO/releases/download/$VERSION/$FILENAME"
+    CHECKSUMS_URL="https://github.com/$REPO/releases/download/$VERSION/checksums-sha256.txt"
 
     echo "Installing igris-memory $VERSION for $TARGET..."
     echo "  Downloading $URL"
@@ -64,6 +65,29 @@ install() {
     trap 'rm -rf "$TMP"' EXIT
 
     curl -fsSL "$URL" -o "$TMP/$FILENAME"
+    curl -fsSL "$CHECKSUMS_URL" -o "$TMP/checksums-sha256.txt"
+
+    echo "  Verifying checksum..."
+    EXPECTED=$(grep "$FILENAME" "$TMP/checksums-sha256.txt" | awk '{print $1}')
+    if [ -z "$EXPECTED" ]; then
+        echo "Error: checksum not found for $FILENAME"
+        exit 1
+    fi
+    if command -v sha256sum > /dev/null 2>&1; then
+        ACTUAL=$(sha256sum "$TMP/$FILENAME" | awk '{print $1}')
+    elif command -v shasum > /dev/null 2>&1; then
+        ACTUAL=$(shasum -a 256 "$TMP/$FILENAME" | awk '{print $1}')
+    else
+        echo "Warning: no sha256sum or shasum found, skipping verification"
+        ACTUAL="$EXPECTED"
+    fi
+    if [ "$ACTUAL" != "$EXPECTED" ]; then
+        echo "Error: checksum mismatch!"
+        echo "  Expected: $EXPECTED"
+        echo "  Got:      $ACTUAL"
+        exit 1
+    fi
+    echo "  Checksum verified."
 
     echo "  Extracting..."
     tar xzf "$TMP/$FILENAME" -C "$TMP"
