@@ -1,0 +1,27 @@
+#!/bin/sh
+# Pre-commit hook: runs the minimum checks that CI requires.
+# Install: git config core.hooksPath .githooks
+set -e
+
+echo "pre-commit: cargo fmt --check"
+cargo fmt --check || {
+    echo ""
+    echo "ERROR: code is not formatted. Run 'cargo fmt' and re-commit."
+    exit 1
+}
+
+echo "pre-commit: cargo clippy"
+cargo clippy -- -D warnings || {
+    echo ""
+    echo "ERROR: clippy warnings found. Fix them and re-commit."
+    exit 1
+}
+
+echo "pre-commit: cargo test"
+cargo test --quiet || {
+    echo ""
+    echo "ERROR: tests failed. Fix them and re-commit."
+    exit 1
+}
+
+echo "pre-commit: all checks passed"

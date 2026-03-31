@@ -211,6 +211,9 @@ SQLite + FTS5 + SQLCipher
 # Prerequisites
 rustup install stable  # Rust 1.94+
 
+# Setup (activate pre-commit hooks)
+git config core.hooksPath .githooks
+
 # Build
 cargo build --release
 
@@ -219,7 +222,12 @@ cargo test
 
 # Lint
 cargo clippy
+
+# Format
+cargo fmt
 ```
+
+The pre-commit hook automatically runs `cargo fmt --check`, `cargo clippy`, and `cargo test` before each commit.
 
 ## License
 

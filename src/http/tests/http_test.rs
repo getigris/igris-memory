@@ -229,7 +229,6 @@ async fn search_empty_query_returns_400() {
 #[tokio::test]
 async fn context_returns_recent() {
     let state = test_state();
-    let app = router(state.clone());
     for i in 0..3 {
         response_json(
             router(state.clone()),

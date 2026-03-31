@@ -1,11 +1,6 @@
 use super::*;
 use crate::db::Database;
 
-fn test_app() -> App {
-    let db = Database::open_in_memory().expect("failed to create in-memory db");
-    App::new(db)
-}
-
 fn test_app_with_data() -> App {
     let db = Database::open_in_memory().expect("failed to create in-memory db");
     for i in 0..5 {
