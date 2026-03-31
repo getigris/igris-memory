@@ -9,7 +9,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 
 jobs:
   build:
@@ -34,12 +34,19 @@ jobs:
             archive: zip
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Cache vcpkg OpenSSL (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.VCPKG_INSTALLATION_ROOT }}/installed
+          key: vcpkg-openssl-x64-windows-static-md
 
       - name: Install OpenSSL (Windows)
         if: runner.os == 'Windows'
@@ -75,7 +82,7 @@ jobs:
         shell: bash
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: igris-memory-${{ matrix.target }}
           path: igris-memory-${{ matrix.target }}.${{ matrix.archive }}
@@ -85,10 +92,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
 
