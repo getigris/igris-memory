@@ -15,15 +15,26 @@ Every AI conversation starts from zero. Igris Memory fixes that by giving your A
 - **Plans that clean up** — save execution plans, track progress, delete when done
 - **Privacy-first** — wrap secrets in `<private>` tags, auto-redacted before storage
 
-## Quick Start
+## Install
 
+**Shell script** (Linux/macOS — auto-detects architecture):
 ```bash
-# Install
 curl -fsSL https://raw.githubusercontent.com/getigris/igris-memory/main/dist/install.sh | sh
+```
 
-# Or build from source
+**Homebrew** (macOS/Linux):
+```bash
+brew install getigris/tap/igris-memory
+```
+
+**From source**:
+```bash
 cargo install --path .
 ```
+
+**Windows**: download `igris-memory-x86_64-pc-windows-msvc.zip` from [GitHub Releases](https://github.com/getigris/igris-memory/releases), extract `igmem.exe`, and add to your PATH.
+
+The binary is called **`igmem`**.
 
 ### Configure with Claude Code
 
