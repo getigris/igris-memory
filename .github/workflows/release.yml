@@ -43,16 +43,19 @@ jobs:
 
       - name: Cache vcpkg OpenSSL (Windows)
         if: runner.os == 'Windows'
+        id: vcpkg-cache
         uses: actions/cache@v5
         with:
-          path: ${{ env.VCPKG_INSTALLATION_ROOT }}/installed
-          key: vcpkg-openssl-x64-windows-static-md
+          path: C:/vcpkg/installed
+          key: vcpkg-openssl-x64-windows-static-md-v1
 
       - name: Install OpenSSL (Windows)
+        if: runner.os == 'Windows' && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        run: vcpkg install openssl:x64-windows-static-md
+
+      - name: Set OpenSSL env (Windows)
         if: runner.os == 'Windows'
-        run: |
-          vcpkg install openssl:x64-windows-static-md
-          echo "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md" >> $env:GITHUB_ENV
+        run: echo "OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static-md" >> $env:GITHUB_ENV
 
       - name: Install cross (Linux aarch64)
         if: matrix.cross
