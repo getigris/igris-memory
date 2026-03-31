@@ -84,7 +84,7 @@ jobs:
         shell: bash
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: igris-memory-${{ matrix.target }}
           path: igris-memory-${{ matrix.target }}.${{ matrix.archive }}
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -105,7 +105,7 @@ jobs:
         run: |
           cd artifacts
           find . -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec mv {} . \;
-          sha256sum igris-memory-* > checksums-sha256.txt
+          sha256sum *.tar.gz *.zip > checksums-sha256.txt
           cat checksums-sha256.txt
 
       - name: Create release
