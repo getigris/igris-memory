@@ -85,3 +85,51 @@ fn cli_serve_with_data_dir() {
         _ => panic!("expected Serve command"),
     }
 }
+
+// ─── Multi-project namespacing ──────────────────────────────────
+
+#[test]
+fn resolve_global_db_path() {
+    let cli = Cli::try_parse_from(["igris-memory", "--data-dir", "/tmp/igris"]).unwrap();
+    let path = cli.resolve_db_path();
+    assert_eq!(path, PathBuf::from("/tmp/igris/memory.db"));
+}
+
+#[test]
+fn resolve_scoped_with_project_name() {
+    let cli = Cli::try_parse_from(["igris-memory", "--data-dir", "/tmp/igris", "--project-scoped", "--project", "foo"]).unwrap();
+    let path = cli.resolve_db_path();
+    assert_eq!(path, PathBuf::from("/tmp/igris/projects/foo/memory.db"));
+}
+
+#[test]
+fn resolve_scoped_defaults_to_cwd() {
+    let cli = Cli::try_parse_from(["igris-memory", "--data-dir", "/tmp/igris", "--project-scoped"]).unwrap();
+    let path = cli.resolve_db_path();
+    // Should use the current directory's basename
+    let cwd_name = std::env::current_dir().unwrap();
+    let expected_name = cwd_name.file_name().unwrap().to_str().unwrap();
+    assert_eq!(path, PathBuf::from(format!("/tmp/igris/projects/{expected_name}/memory.db")));
+}
+
+#[test]
+fn cli_parses_db_key() {
+    let cli = Cli::try_parse_from(["igris-memory", "--db-key", "secret123"]).unwrap();
+    assert_eq!(cli.resolve_db_key(), Some("secret123".to_string()));
+}
+
+#[test]
+fn cli_db_key_none_by_default() {
+    let cli = Cli::try_parse_from(["igris-memory"]).unwrap();
+    // Only if env var is not set
+    if std::env::var("IGRIS_DB_KEY").is_err() {
+        assert_eq!(cli.resolve_db_key(), None);
+    }
+}
+
+#[test]
+fn project_flag_ignored_without_scoped() {
+    let cli = Cli::try_parse_from(["igris-memory", "--data-dir", "/tmp/igris", "--project", "foo"]).unwrap();
+    let path = cli.resolve_db_path();
+    assert_eq!(path, PathBuf::from("/tmp/igris/memory.db"), "--project without --project-scoped should use global DB");
+}

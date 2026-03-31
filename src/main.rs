@@ -6,11 +6,12 @@ mod models;
 mod tui;
 mod schema;
 mod server;
+mod sync;
 mod topic;
 mod utils;
 mod validation;
 
-use crate::cli::{Cli, Command};
+use crate::cli::{Cli, Command, SyncAction};
 use crate::db::Database;
 use crate::server::IgrisServer;
 use clap::Parser;
@@ -33,13 +34,15 @@ async fn main() -> anyhow::Result<()> {
         .with_ansi(false)
         .init();
 
-    let dir = cli.resolve_data_dir();
-    std::fs::create_dir_all(&dir)?;
-    let db_path = dir.join("memory.db");
+    let db_path = cli.resolve_db_path();
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
 
     tracing::info!("Igris Memory starting — db at {}", db_path.display());
 
-    let db = Database::open(&db_path)?;
+    let db_key = cli.resolve_db_key();
+    let db = Database::open(&db_path, db_key.as_deref())?;
 
     match cli.command {
         Some(Command::Serve { port, host }) => {
@@ -47,6 +50,21 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Command::Tui) => {
             tui::run(db)?;
+        }
+        Some(Command::Sync { action }) => {
+            match action {
+                SyncAction::Export { dir } => {
+                    let manifest = sync::export_to_dir(&db, &dir)?;
+                    println!("Exported {} observations, {} sessions to {}",
+                        manifest.observation_count, manifest.session_count, dir.display());
+                }
+                SyncAction::Import { dir } => {
+                    let result = sync::import_from_dir(&db, &dir)?;
+                    println!("Imported: {} observations ({} skipped), {} sessions ({} skipped)",
+                        result.observations_imported, result.observations_skipped,
+                        result.sessions_imported, result.sessions_skipped);
+                }
+            }
         }
         None => {
             let server = IgrisServer::new(db);

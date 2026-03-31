@@ -28,8 +28,12 @@ pub struct Database {
 
 impl Database {
     /// Open (or create) the database at the given path and run migrations.
-    pub fn open(path: &Path) -> SqlResult<Self> {
+    /// If `key` is provided, the database is encrypted with SQLCipher.
+    pub fn open(path: &Path, key: Option<&str>) -> SqlResult<Self> {
         let conn = Connection::open(path)?;
+        if let Some(k) = key {
+            conn.pragma_update(None, "key", k)?;
+        }
         let db = Self { conn };
         db.init()?;
         Ok(db)

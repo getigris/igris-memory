@@ -392,3 +392,68 @@ fn session_rejects_empty_project() {
     assert!(err.is_err());
     assert_eq!(err.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
 }
+
+// ─── Encryption ─────────────────────────────────────────────────
+
+#[test]
+fn open_without_key_works() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+    let db = Database::open(&path, None).unwrap();
+    db.save_observation("T", "C", "manual", None, "project", None, None, None).unwrap();
+    let obs = db.recent_context(None, Some(1)).unwrap();
+    assert_eq!(obs.len(), 1);
+}
+
+#[test]
+fn open_with_key_encrypts() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("encrypted.db");
+
+    // Create encrypted DB
+    let db = Database::open(&path, Some("secret123")).unwrap();
+    db.save_observation("Secret", "data", "manual", None, "project", None, None, None).unwrap();
+    drop(db);
+
+    // Re-open with correct key works
+    let db = Database::open(&path, Some("secret123")).unwrap();
+    let obs = db.recent_context(None, Some(1)).unwrap();
+    assert_eq!(obs[0].title, "Secret");
+}
+
+#[test]
+fn open_with_wrong_key_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("encrypted.db");
+
+    // Create encrypted DB
+    let db = Database::open(&path, Some("correct_key")).unwrap();
+    db.save_observation("T", "C", "manual", None, "project", None, None, None).unwrap();
+    drop(db);
+
+    // Re-open with wrong key fails
+    let result = Database::open(&path, Some("wrong_key"));
+    assert!(result.is_err(), "wrong key should fail to open encrypted DB");
+}
+
+#[test]
+fn encrypted_db_crud_works() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("crud.db");
+    let db = Database::open(&path, Some("mykey")).unwrap();
+
+    // Save
+    let obs = db.save_observation("Auth design", "JWT tokens", "decision", Some("web"), "project", None, None, None).unwrap();
+    assert_eq!(obs.title, "Auth design");
+
+    // Get
+    let fetched = db.get_observation(obs.id).unwrap();
+    assert_eq!(fetched.content, "JWT tokens");
+
+    // Search
+    let results = db.search("JWT", None, None, None).unwrap();
+    assert!(!results.is_empty());
+
+    // Delete
+    assert!(db.delete_observation(obs.id).unwrap());
+}

@@ -49,6 +49,8 @@ impl fmt::Display for IgrisError {
     }
 }
 
+impl std::error::Error for IgrisError {}
+
 impl From<rusqlite::Error> for IgrisError {
     fn from(e: rusqlite::Error) -> Self {
         Self::database(e.to_string())
