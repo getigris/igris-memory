@@ -1,4 +1,81 @@
 use crate::db::Database;
+use crate::store::BrainStore;
+
+#[test]
+fn database_implements_brainstore() {
+    fn assert_impl<T: BrainStore>() {}
+    assert_impl::<Database>();
+}
+
+#[test]
+fn upsert_creates_then_returns_entity() {
+    let db = Database::open_in_memory().unwrap();
+    let e = db
+        .upsert_entity("person", "Jane Doe", &[], Some("igris-memory"), "project")
+        .unwrap();
+    assert_eq!(e.kind, "person");
+    assert_eq!(e.canonical_name, "Jane Doe");
+    assert_eq!(e.slug, "jane-doe");
+    assert_eq!(e.tier, 3);
+
+    let fetched = db.get_entity(e.id).unwrap();
+    assert_eq!(fetched.id, e.id);
+    assert_eq!(fetched.slug, "jane-doe");
+}
+
+#[test]
+fn upsert_same_slug_updates_in_place() {
+    let db = Database::open_in_memory().unwrap();
+    let a = db
+        .upsert_entity("person", "Jane Doe", &[], None, "project")
+        .unwrap();
+    let b = db
+        .upsert_entity("person", "Jane Doe", &["JD".to_string()], None, "project")
+        .unwrap();
+    assert_eq!(a.id, b.id, "same slug must update in place, not duplicate");
+
+    let count: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM entities", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+
+    // canonical_name + provided alias are both registered
+    let alias_count: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM entity_aliases WHERE entity_id = ?1",
+            [a.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(alias_count, 2, "expected 'jane doe' + 'jd' aliases");
+}
+
+#[test]
+fn get_entity_by_slug_scopes_by_project() {
+    let db = Database::open_in_memory().unwrap();
+    db.upsert_entity("company", "Acme", &[], Some("proj-a"), "project")
+        .unwrap();
+    let got = db
+        .get_entity_by_slug("acme", Some("proj-a"), "project")
+        .unwrap();
+    assert_eq!(got.canonical_name, "Acme");
+    assert!(
+        db.get_entity_by_slug("acme", Some("proj-b"), "project")
+            .is_err(),
+        "slug lookup must be scoped to project"
+    );
+}
+
+#[test]
+fn upsert_rejects_invalid_kind() {
+    let db = Database::open_in_memory().unwrap();
+    assert!(
+        db.upsert_entity("alien", "X", &[], None, "project")
+            .is_err()
+    );
+}
 
 #[test]
 fn schema_v2_creates_entity_tables() {

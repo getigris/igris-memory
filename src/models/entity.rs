@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 /// A first-class knowledge node: a person, company, project, concept, etc.
 /// Compiled Truth and Timeline are derived; this struct holds the stored row.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct Entity {
     pub id: i64,
     pub kind: String,

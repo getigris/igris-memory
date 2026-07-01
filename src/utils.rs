@@ -28,7 +28,6 @@ pub fn now_utc() -> String {
 
 /// Normalize an alias for deterministic matching: trim, lowercase,
 /// and collapse internal whitespace to single spaces.
-#[allow(dead_code)] // TODO(fase-0a): remove once used in Task 5
 pub fn normalize_alias(input: &str) -> String {
     input
         .split_whitespace()
@@ -40,7 +39,6 @@ pub fn normalize_alias(input: &str) -> String {
 /// Produce a stable kebab-case slug from an entity name.
 /// Keeps ASCII alphanumerics, turns runs of other chars into single dashes,
 /// trims leading/trailing dashes, and caps length at 60 chars.
-#[allow(dead_code)] // TODO(fase-0a): remove once used in Task 5
 pub fn entity_slug(input: &str) -> String {
     let mut slug = String::new();
     let mut prev_dash = false;

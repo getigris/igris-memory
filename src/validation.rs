@@ -15,13 +15,11 @@ pub const VALID_TYPES: &[&str] = &[
 pub const VALID_SCOPES: &[&str] = &["project", "personal"];
 
 /// Valid entity kinds accepted by Igris.
-#[allow(dead_code)] // TODO(fase-0a): remove once used in Task 5
 pub const VALID_ENTITY_KINDS: &[&str] = &[
     "person", "company", "project", "concept", "place", "product", "other",
 ];
 
 /// Validate that the entity kind is one of the known kinds.
-#[allow(dead_code)] // TODO(fase-0a): remove once used in Task 5
 pub fn validate_entity_kind(kind: &str) -> Result<(), String> {
     if !VALID_ENTITY_KINDS.contains(&kind) {
         return Err(format!(
@@ -33,7 +31,6 @@ pub fn validate_entity_kind(kind: &str) -> Result<(), String> {
 }
 
 /// Validate entity upsert inputs.
-#[allow(dead_code)] // TODO(fase-0a): remove once used in Task 5
 pub fn validate_entity(kind: &str, name: &str, scope: &str) -> Result<(), String> {
     require_non_empty(name, "canonical_name")?;
     validate_entity_kind(kind)?;
