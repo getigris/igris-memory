@@ -45,3 +45,6 @@ coverage/
 # Project specific
 /plans
 .claude/
+
+# Local-only design/spec docs (not committed)
+/docs/superpowers/
