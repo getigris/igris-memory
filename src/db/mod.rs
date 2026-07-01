@@ -1,5 +1,6 @@
 mod entities;
 mod export;
+mod graph;
 mod observations;
 mod purge;
 mod search;

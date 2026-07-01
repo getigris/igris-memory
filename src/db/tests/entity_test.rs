@@ -256,3 +256,142 @@ fn upsert_entity_strips_private_tags_from_name() {
         "no raw private value should be stored in aliases"
     );
 }
+
+#[test]
+fn record_mentions_stubs_unknown_and_links() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let obs = db
+        .save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    let resolved = db
+        .record_mentions(
+            obs.id,
+            &["Acme Corp".to_string(), "Jane Doe".to_string()],
+            None,
+            "project",
+        )
+        .unwrap();
+    assert_eq!(resolved.len(), 2);
+    // both stubbed as kind "other", tier 3
+    assert!(resolved.iter().all(|e| e.kind == "other" && e.tier == 3));
+    // two mention rows
+    let mentions: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM mentions", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(mentions, 2);
+    // one co_mentioned edge, stored src<dst
+    let (src, dst, etype, ev): (i64, i64, String, i64) = db
+        .conn
+        .query_row(
+            "SELECT src_entity_id, dst_entity_id, edge_type, evidence_count FROM edges",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .unwrap();
+    assert!(src < dst);
+    assert_eq!(etype, "co_mentioned");
+    assert_eq!(ev, 1);
+}
+
+#[test]
+fn record_mentions_resolves_existing_alias_and_strengthens_edge() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    // Pre-declare Acme with an alias
+    let acme = db
+        .upsert_entity(
+            "company",
+            "Acme Corp",
+            &["Acme".to_string()],
+            None,
+            "project",
+        )
+        .unwrap();
+    let o1 = db
+        .save_observation("t1", "c1", "manual", None, "project", None, None, None)
+        .unwrap();
+    let r1 = db
+        .record_mentions(
+            o1.id,
+            &["Acme".to_string(), "Bob".to_string()],
+            None,
+            "project",
+        )
+        .unwrap();
+    // "Acme" resolves to the existing Acme Corp entity, not a new stub
+    assert!(r1.iter().any(|e| e.id == acme.id));
+    let entity_count: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM entities", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(entity_count, 2, "Acme reused + Bob stub");
+
+    // Second observation mentions the same pair → edge evidence_count increments
+    let o2 = db
+        .save_observation("t2", "c2", "manual", None, "project", None, None, None)
+        .unwrap();
+    db.record_mentions(
+        o2.id,
+        &["Acme Corp".to_string(), "Bob".to_string()],
+        None,
+        "project",
+    )
+    .unwrap();
+    let edge_rows: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM edges", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(edge_rows, 1, "same pair → single edge, not duplicated");
+    let ev: i64 = db
+        .conn
+        .query_row("SELECT evidence_count FROM edges", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(ev, 2);
+}
+
+#[test]
+fn entity_neighbors_returns_other_end_strongest_first() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let o = db
+        .save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    let resolved = db
+        .record_mentions(
+            o.id,
+            &["Acme".to_string(), "Bob".to_string(), "Carol".to_string()],
+            None,
+            "project",
+        )
+        .unwrap();
+    let acme = resolved
+        .iter()
+        .find(|e| e.canonical_name == "Acme")
+        .unwrap();
+    let neighbors = db.entity_neighbors(acme.id, 10).unwrap();
+    // Acme co-mentioned with Bob and Carol → 2 neighbors, none of them Acme itself
+    assert_eq!(neighbors.len(), 2);
+    assert!(neighbors.iter().all(|n| n.entity.id != acme.id));
+    assert!(neighbors.iter().all(|n| n.edge.edge_type == "co_mentioned"));
+}
+
+#[test]
+fn add_mention_is_idempotent() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let o = db
+        .save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    let e = db
+        .upsert_entity("other", "X", &[], None, "project")
+        .unwrap();
+    db.add_mention(o.id, e.id).unwrap();
+    db.add_mention(o.id, e.id).unwrap();
+    let count: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM mentions", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+}

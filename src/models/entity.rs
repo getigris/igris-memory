@@ -21,8 +21,11 @@ pub struct Entity {
 
 /// A typed relation between two entities. Symmetric edges (e.g. `co_mentioned`)
 /// are stored once with `src_entity_id < dst_entity_id`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// Constructed by `BrainStore::upsert_edge`/`entity_neighbors` (src/db/entities.rs),
+// which aren't yet reachable from `main` (no MCP/HTTP handler wired in this phase) —
+// only exercised via `#[cfg(test)]`, so plain `cargo clippy` still sees it as dead.
 #[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Edge {
     pub id: i64,
     pub src_entity_id: i64,
@@ -37,8 +40,9 @@ pub struct Edge {
 
 /// A neighbor in the entity graph: the connecting edge plus the entity on the
 /// other end.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// See `Edge` above — same reason, not yet reachable outside tests.
 #[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityNeighbor {
     pub edge: Edge,
     pub entity: Entity,

@@ -1,5 +1,5 @@
 use crate::errors::IgrisError;
-use crate::models::Entity;
+use crate::models::{Edge, Entity, EntityNeighbor};
 use crate::store::BrainStore;
 use crate::utils::{entity_slug, normalize_alias, now_utc, strip_private_tags};
 use crate::validation;
@@ -137,5 +137,131 @@ impl BrainStore for Database {
             )
             .optional()?;
         found.ok_or_else(|| IgrisError::not_found(format!("Entity '{slug}' not found")))
+    }
+
+    fn add_mention(&self, observation_id: i64, entity_id: i64) -> DbResult<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO mentions (observation_id, entity_id) VALUES (?1, ?2)",
+            params![observation_id, entity_id],
+        )?;
+        Ok(())
+    }
+
+    fn resolve_or_stub_entity(
+        &self,
+        mention: &str,
+        project: Option<&str>,
+        scope: &str,
+    ) -> DbResult<Entity> {
+        let normalized = normalize_alias(mention);
+        let existing: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT a.entity_id
+                 FROM entity_aliases a
+                 JOIN entities e ON e.id = a.entity_id
+                 WHERE a.alias_normalized = ?1
+                   AND IFNULL(e.project, '') = IFNULL(?2, '')
+                   AND e.scope = ?3
+                   AND e.deleted_at IS NULL
+                 ORDER BY datetime(e.updated_at) DESC
+                 LIMIT 1",
+                params![normalized, project, scope],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        match existing {
+            Some(id) => self.get_entity(id),
+            None => self.upsert_entity("other", mention, &[], project, scope),
+        }
+    }
+
+    fn upsert_edge(
+        &self,
+        src_entity_id: i64,
+        dst_entity_id: i64,
+        edge_type: &str,
+    ) -> DbResult<Edge> {
+        let now = now_utc();
+        self.conn.execute(
+            "INSERT INTO edges
+                 (src_entity_id, dst_entity_id, edge_type, evidence_count, confidence, first_seen, last_seen)
+             VALUES (?1, ?2, ?3, 1, 1.0, ?4, ?4)
+             ON CONFLICT(src_entity_id, dst_entity_id, edge_type)
+             DO UPDATE SET evidence_count = evidence_count + 1, last_seen = ?4",
+            params![src_entity_id, dst_entity_id, edge_type, now],
+        )?;
+        Ok(self.conn.query_row(
+            &format!(
+                "SELECT {} FROM edges
+                 WHERE src_entity_id = ?1 AND dst_entity_id = ?2 AND edge_type = ?3",
+                Self::EDGE_COLS
+            ),
+            params![src_entity_id, dst_entity_id, edge_type],
+            |row| Ok(Self::row_to_edge(row)),
+        )?)
+    }
+
+    fn record_mentions(
+        &self,
+        observation_id: i64,
+        mentions: &[String],
+        project: Option<&str>,
+        scope: &str,
+    ) -> DbResult<Vec<Entity>> {
+        let mut resolved: Vec<Entity> = Vec::new();
+        let mut ids: Vec<i64> = Vec::new();
+        for mention in mentions {
+            if normalize_alias(mention).is_empty() {
+                continue;
+            }
+            let entity = self.resolve_or_stub_entity(mention, project, scope)?;
+            if !ids.contains(&entity.id) {
+                self.add_mention(observation_id, entity.id)?;
+                ids.push(entity.id);
+                resolved.push(entity);
+            }
+        }
+        // Co-occurrence edges between every distinct pair (stored src < dst).
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                let (a, b) = if ids[i] < ids[j] {
+                    (ids[i], ids[j])
+                } else {
+                    (ids[j], ids[i])
+                };
+                self.upsert_edge(a, b, "co_mentioned")?;
+            }
+        }
+        Ok(resolved)
+    }
+
+    fn entity_neighbors(&self, entity_id: i64, limit: i64) -> DbResult<Vec<EntityNeighbor>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM edges
+             WHERE (src_entity_id = ?1 OR dst_entity_id = ?1)
+               AND deleted_at IS NULL
+             ORDER BY evidence_count DESC, datetime(last_seen) DESC
+             LIMIT ?2",
+            Self::EDGE_COLS
+        ))?;
+        let edges: Vec<Edge> = stmt
+            .query_map(params![entity_id, limit], |row| Ok(Self::row_to_edge(row)))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut neighbors = Vec::new();
+        for edge in edges {
+            let other_id = if edge.src_entity_id == entity_id {
+                edge.dst_entity_id
+            } else {
+                edge.src_entity_id
+            };
+            if let Ok(entity) = self.get_entity(other_id) {
+                neighbors.push(EntityNeighbor { edge, entity });
+            }
+        }
+        Ok(neighbors)
     }
 }
