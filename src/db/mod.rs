@@ -7,7 +7,7 @@ mod timeline;
 
 use crate::errors::IgrisError;
 use crate::models::Observation;
-use crate::schema::{PRAGMAS, SCHEMA_V1, SCHEMA_VERSION};
+use crate::schema::{PRAGMAS, SCHEMA_V1, SCHEMA_V2, SCHEMA_VERSION};
 use rusqlite::{Connection, Result as SqlResult};
 use std::path::Path;
 
@@ -53,8 +53,13 @@ impl Database {
         let version: u32 = self
             .conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version < SCHEMA_VERSION {
+        if version < 1 {
             self.conn.execute_batch(SCHEMA_V1)?;
+        }
+        if version < 2 {
+            self.conn.execute_batch(SCHEMA_V2)?;
+        }
+        if version < SCHEMA_VERSION {
             self.conn
                 .execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
         }
@@ -107,3 +112,7 @@ impl<T> OptionalExt<T> for SqlResult<T> {
 #[cfg(test)]
 #[path = "tests/db_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/entity_test.rs"]
+mod entity_tests;

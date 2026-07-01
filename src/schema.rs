@@ -1,5 +1,5 @@
 /// Current schema version. Increment when adding migrations.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Initial database schema — tables, FTS5, triggers, and indices.
 pub const SCHEMA_V1: &str = r#"
@@ -67,6 +67,73 @@ CREATE INDEX IF NOT EXISTS idx_obs_deleted    ON observations(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_obs_topic      ON observations(topic_key, project, scope, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_obs_dedupe     ON observations(normalized_hash, project, scope, type);
 CREATE INDEX IF NOT EXISTS idx_sessions_proj  ON sessions(project);
+"#;
+
+/// Schema v2 — entity graph layer (additive; observations/sessions untouched).
+pub const SCHEMA_V2: &str = r#"
+-- Entities: first-class nodes (person, company, project, concept, ...)
+CREATE TABLE IF NOT EXISTS entities (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind           TEXT NOT NULL,
+    canonical_name TEXT NOT NULL,
+    slug           TEXT NOT NULL,
+    tier           INTEGER NOT NULL DEFAULT 3,
+    salience       REAL NOT NULL DEFAULT 0.0,
+    compiled_truth TEXT,
+    compiled_at    TEXT,
+    project        TEXT,
+    scope          TEXT NOT NULL DEFAULT 'project',
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_at     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_slug
+    ON entities(slug, IFNULL(project, ''), scope);
+CREATE INDEX IF NOT EXISTS idx_entity_kind    ON entities(kind);
+CREATE INDEX IF NOT EXISTS idx_entity_deleted ON entities(deleted_at);
+
+-- Aliases: normalized strings that resolve to an entity (deterministic wiring)
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_id        INTEGER NOT NULL,
+    alias_normalized TEXT NOT NULL,
+    source           TEXT,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (entity_id) REFERENCES entities(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alias_unique
+    ON entity_aliases(alias_normalized, entity_id);
+CREATE INDEX IF NOT EXISTS idx_alias_norm ON entity_aliases(alias_normalized);
+
+-- Edges: typed relations between entities (wired in Fase 0b)
+CREATE TABLE IF NOT EXISTS edges (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    src_entity_id  INTEGER NOT NULL,
+    dst_entity_id  INTEGER NOT NULL,
+    edge_type      TEXT NOT NULL,
+    evidence_count INTEGER NOT NULL DEFAULT 1,
+    confidence     REAL NOT NULL DEFAULT 1.0,
+    first_seen     TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen      TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_at     TEXT,
+    FOREIGN KEY (src_entity_id) REFERENCES entities(id),
+    FOREIGN KEY (dst_entity_id) REFERENCES entities(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_edge_unique
+    ON edges(src_entity_id, dst_entity_id, edge_type);
+
+-- Mentions: bridge observation -> entity (wired in Fase 0b)
+CREATE TABLE IF NOT EXISTS mentions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id INTEGER NOT NULL,
+    entity_id      INTEGER NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (observation_id) REFERENCES observations(id),
+    FOREIGN KEY (entity_id) REFERENCES entities(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mention_unique
+    ON mentions(observation_id, entity_id);
+CREATE INDEX IF NOT EXISTS idx_mention_entity ON mentions(entity_id);
 "#;
 
 /// Pragmas applied on every connection open.
