@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::observation::Observation;
+
 /// A first-class knowledge node: a person, company, project, concept, etc.
 /// Compiled Truth and Timeline are derived; this struct holds the stored row.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,3 +58,15 @@ pub struct Mention {
     pub observation_id: i64,
     pub entity_id: i64,
 }
+
+/// A one-call brief for an entity: the entity (with its Compiled Truth), its
+/// strongest connections, and its most recent mentions (with observation ids
+/// serving as citations).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+pub struct EntityBrief {
+    pub entity: Entity,
+    pub neighbors: Vec<EntityNeighbor>,
+    pub recent: Vec<Observation>,
+}
+// TODO(fase-0c): remove once used in Task 3

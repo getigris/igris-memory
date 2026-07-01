@@ -567,6 +567,35 @@ fn sync_roundtrip_preserves_entity_graph() {
 }
 
 #[test]
+fn entity_brief_model_serializes() {
+    use crate::models::{Entity, EntityBrief};
+    let entity = Entity {
+        id: 1,
+        kind: "company".to_string(),
+        canonical_name: "Acme".to_string(),
+        slug: "acme".to_string(),
+        tier: 3,
+        salience: 0.0,
+        compiled_truth: Some("# Acme".to_string()),
+        compiled_at: Some("2026-07-01T00:00:00Z".to_string()),
+        project: None,
+        scope: "project".to_string(),
+        created_at: "2026-07-01T00:00:00Z".to_string(),
+        updated_at: "2026-07-01T00:00:00Z".to_string(),
+        deleted_at: None,
+    };
+    let brief = EntityBrief {
+        entity,
+        neighbors: vec![],
+        recent: vec![],
+    };
+    let json = serde_json::to_string(&brief).unwrap();
+    assert!(json.contains("\"entity\""));
+    assert!(json.contains("\"neighbors\""));
+    assert!(json.contains("\"recent\""));
+}
+
+#[test]
 fn v1_database_upgrades_to_v2_preserving_data() {
     use crate::schema::SCHEMA_V1;
     use rusqlite::Connection;
