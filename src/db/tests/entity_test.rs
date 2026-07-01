@@ -227,3 +227,32 @@ fn edge_and_neighbor_models_serialize() {
     assert!(json.contains("\"evidence_count\":4"));
     assert!(json.contains("\"canonical_name\":\"Acme\""));
 }
+
+#[test]
+fn upsert_entity_strips_private_tags_from_name() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let e = db
+        .upsert_entity(
+            "person",
+            "Jane <private>secret</private>",
+            &["<private>also-secret</private> JD".to_string()],
+            None,
+            "project",
+        )
+        .unwrap();
+    assert!(!e.canonical_name.contains("secret"));
+    assert!(e.canonical_name.contains("[REDACTED]"));
+    let alias_leak: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM entity_aliases WHERE alias_normalized LIKE '%secret%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        alias_leak, 0,
+        "no raw private value should be stored in aliases"
+    );
+}

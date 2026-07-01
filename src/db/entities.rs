@@ -1,7 +1,7 @@
 use crate::errors::IgrisError;
 use crate::models::Entity;
 use crate::store::BrainStore;
-use crate::utils::{entity_slug, normalize_alias, now_utc};
+use crate::utils::{entity_slug, normalize_alias, now_utc, strip_private_tags};
 use crate::validation;
 use rusqlite::params;
 
@@ -31,7 +31,7 @@ impl Database {
 
     /// Register one alias for an entity (idempotent via unique index).
     fn add_alias(&self, entity_id: i64, raw: &str, source: &str) -> DbResult<()> {
-        let normalized = normalize_alias(raw);
+        let normalized = normalize_alias(&strip_private_tags(raw));
         if normalized.is_empty() {
             return Ok(());
         }
@@ -53,8 +53,9 @@ impl BrainStore for Database {
         project: Option<&str>,
         scope: &str,
     ) -> DbResult<Entity> {
-        validation::validate_entity(kind, canonical_name, scope).map_err(IgrisError::validation)?;
-        let slug = entity_slug(canonical_name);
+        let clean_name = strip_private_tags(canonical_name);
+        validation::validate_entity(kind, &clean_name, scope).map_err(IgrisError::validation)?;
+        let slug = entity_slug(&clean_name);
         let now = now_utc();
 
         let existing: Option<i64> = self
@@ -76,7 +77,7 @@ impl BrainStore for Database {
                 "UPDATE entities
                  SET kind = ?1, canonical_name = ?2, updated_at = ?3
                  WHERE id = ?4",
-                params![kind, canonical_name, now, id],
+                params![kind, clean_name, now, id],
             )?;
             id
         } else {
@@ -84,13 +85,13 @@ impl BrainStore for Database {
                 "INSERT INTO entities
                  (kind, canonical_name, slug, project, scope, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![kind, canonical_name, slug, project, scope, now, now],
+                params![kind, clean_name, slug, project, scope, now, now],
             )?;
             self.conn.last_insert_rowid()
         };
 
         // Register canonical name + provided aliases as normalized aliases.
-        self.add_alias(entity_id, canonical_name, "canonical")?;
+        self.add_alias(entity_id, &clean_name, "canonical")?;
         for alias in aliases {
             self.add_alias(entity_id, alias, "provided")?;
         }
