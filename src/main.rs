@@ -5,6 +5,7 @@ mod http;
 mod models;
 mod schema;
 mod server;
+mod store;
 mod sync;
 mod topic;
 mod tui;
