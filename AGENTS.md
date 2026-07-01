@@ -99,12 +99,14 @@ Structure the summary as:
 |------|-------------|------------|
 | `igris_entity_upsert` | Declare the who/what a memory is about. Idempotent by name within project+scope. | `kind`, `name` (required), `aliases?`, `project?`, `scope?` |
 | `igris_entity_get` | Fetch an entity by `id` or `slug`. | `id?` or `slug?`, `project?`, `scope?` |
+| `igris_entity_link` | Create/strengthen a typed relation between two entities (by id). | `src_id`, `dst_id`, `relation` (required) |
+| `igris_entity_neighbors` | List an entity's connected entities, strongest first. | `entity_id` (required), `limit?` |
 
 #### Saving & Updating
 
 | Tool | When to Use | Parameters |
 |------|-------------|------------|
-| `igris_save` | Save a new observation. Use `topic_key` for evolving knowledge. | `title`, `content` (required), `type?`, `project?`, `scope?`, `tags?`, `topic_key?`, `session_id?` |
+| `igris_save` | Save a new observation. Use `topic_key` for evolving knowledge; `mentions` to link entities. | `title`, `content` (required), `type?`, `project?`, `scope?`, `tags?`, `topic_key?`, `session_id?`, `mentions?` |
 | `igris_update` | Correct specific fields of an existing memory. | `id` (required), `title?`, `content?`, `type?`, `tags?`, `topic_key?` |
 | `igris_suggest_topic_key` | Generate a consistent topic_key before saving. | `type`, `title`, `content` (all required) |
 

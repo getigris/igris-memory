@@ -57,7 +57,8 @@ src/
 ├── db/
 │   ├── mod.rs           # Database struct (rusqlite Connection), init, schema apply
 │   ├── observations.rs  # CRUD + topic-key upsert + SHA-256 dedup (15-min window)
-│   ├── entities.rs      # BrainStore impl: entity upsert/get + alias resolution
+│   ├── entities.rs      # BrainStore impl: entity upsert/get + alias resolution + graph trait methods
+│   ├── graph.rs         # BrainStore graph helpers: row_to_edge + EDGE_COLS; Edge & EntityNeighbor models
 │   ├── search.rs        # FTS5 queries, recent context, stats aggregation
 │   ├── sessions.rs      # Session lifecycle
 │   ├── timeline.rs      # Chronological before/after queries
