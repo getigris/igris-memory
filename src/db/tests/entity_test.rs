@@ -60,3 +60,29 @@ fn entity_model_serializes_kind_field() {
     assert!(json.contains("\"kind\":\"person\""));
     assert!(json.contains("\"canonical_name\":\"Jane Doe\""));
 }
+
+#[test]
+fn normalize_alias_lowercases_and_collapses_whitespace() {
+    use crate::utils::normalize_alias;
+    assert_eq!(normalize_alias("  Jane   DOE "), "jane doe");
+}
+
+#[test]
+fn entity_slug_produces_kebab_case() {
+    use crate::utils::entity_slug;
+    assert_eq!(entity_slug("Acme Corp, Inc."), "acme-corp-inc");
+    assert_eq!(entity_slug("  Hello!!  World  "), "hello-world");
+}
+
+#[test]
+fn validate_entity_rejects_unknown_kind() {
+    use crate::validation::validate_entity;
+    assert!(validate_entity("alien", "X", "project").is_err());
+    assert!(validate_entity("person", "Jane", "project").is_ok());
+}
+
+#[test]
+fn validate_entity_rejects_empty_name() {
+    use crate::validation::validate_entity;
+    assert!(validate_entity("person", "   ", "project").is_err());
+}
