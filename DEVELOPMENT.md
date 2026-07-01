@@ -53,9 +53,11 @@ src/
 ├── main.rs          # Entry: CLI parse → logging → DB init → mode dispatch
 ├── cli.rs           # clap derive structs (Cli, Command, ServeArgs, SyncArgs)
 ├── schema.rs        # SQL schema v1: tables, FTS5, triggers, indices, pragmas
+├── store.rs         # BrainStore trait — storage contract (entity/graph surface)
 ├── db/
 │   ├── mod.rs           # Database struct (rusqlite Connection), init, schema apply
 │   ├── observations.rs  # CRUD + topic-key upsert + SHA-256 dedup (15-min window)
+│   ├── entities.rs      # BrainStore impl: entity upsert/get + alias resolution
 │   ├── search.rs        # FTS5 queries, recent context, stats aggregation
 │   ├── sessions.rs      # Session lifecycle
 │   ├── timeline.rs      # Chronological before/after queries
@@ -71,7 +73,7 @@ src/
 │   ├── mod.rs       # App state, Screen enum, refresh logic
 │   ├── handler.rs   # Keyboard event handling (vim-style + arrows)
 │   └── ui.rs        # ratatui rendering (tabs, table, detail, search, stats)
-├── models/          # Observation, Session, SearchResult, Timeline, Stats, ExportData
+├── models/          # Observation, Session, SearchResult, Timeline, Stats, ExportData, Entity
 ├── errors.rs        # IgrisError with ErrorCode → HTTP status mapping
 ├── validation.rs    # Type/scope validation, non-empty checks
 ├── topic.rs         # suggest_topic_key: type → family, title → slug
@@ -101,6 +103,10 @@ SQLite with WAL mode, `busy_timeout=5000`, `synchronous=NORMAL`. Optional SQLCip
 ### Valid Observation Types
 
 `decision`, `architecture`, `bugfix`, `pattern`, `config`, `discovery`, `learning`, `plan`, `manual`
+
+### Valid Entity Kinds
+
+`person`, `company`, `project`, `concept`, `place`, `product`, `other`
 
 ### Valid Scopes
 

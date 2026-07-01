@@ -93,6 +93,13 @@ Structure the summary as:
 | `igris_timeline` | Understand the sequence of events around a memory. | `observation_id` (required), `before?`, `after?` |
 | `igris_stats` | Memory store overview: totals by type/project. | _(none)_ |
 
+#### Entities (Fase 0a)
+
+| Tool | When to Use | Parameters |
+|------|-------------|------------|
+| `igris_entity_upsert` | Declare the who/what a memory is about. Idempotent by name within project+scope. | `kind`, `name` (required), `aliases?`, `project?`, `scope?` |
+| `igris_entity_get` | Fetch an entity by `id` or `slug`. | `id?` or `slug?`, `project?`, `scope?` |
+
 #### Saving & Updating
 
 | Tool | When to Use | Parameters |
