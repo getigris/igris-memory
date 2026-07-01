@@ -68,7 +68,5 @@ pub trait BrainStore {
 
     /// Return an entity's neighbors (connecting edge + entity on the other end),
     /// strongest edges first, capped at `limit`.
-    // TODO(fase-0b): remove once used in Task 6 (entity_neighbors MCP tool).
-    #[allow(dead_code)]
     fn entity_neighbors(&self, entity_id: i64, limit: i64) -> DbResult<Vec<EntityNeighbor>>;
 }

@@ -36,8 +36,6 @@ pub struct Edge {
 
 /// A neighbor in the entity graph: the connecting edge plus the entity on the
 /// other end.
-// TODO(fase-0b): remove once used in Task 6 (entity_neighbors MCP tool).
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityNeighbor {
     pub edge: Edge,

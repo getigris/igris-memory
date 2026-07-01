@@ -410,3 +410,17 @@ fn add_mention_is_idempotent() {
         .unwrap();
     assert_eq!(count, 1);
 }
+
+#[test]
+fn entity_link_and_neighbors_args_defaults() {
+    let link: crate::server::args::EntityLinkArgs =
+        serde_json::from_str(r#"{"src_id":1,"dst_id":2,"relation":"works_at"}"#).unwrap();
+    assert_eq!(link.src_id, 1);
+    assert_eq!(link.dst_id, 2);
+    assert_eq!(link.relation, "works_at");
+
+    let n: crate::server::args::EntityNeighborsArgs =
+        serde_json::from_str(r#"{"entity_id":5}"#).unwrap();
+    assert_eq!(n.entity_id, 5);
+    assert!(n.limit.is_none());
+}

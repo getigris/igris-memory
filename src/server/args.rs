@@ -186,6 +186,26 @@ pub struct EntityGetArgs {
     pub scope: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityLinkArgs {
+    #[schemars(description = "Source entity id (from igris_entity_upsert/get).")]
+    pub src_id: i64,
+    #[schemars(description = "Destination entity id.")]
+    pub dst_id: i64,
+    #[schemars(
+        description = "Relation type, e.g. 'works_at', 'founded', 'related_to'. Creates or strengthens the edge."
+    )]
+    pub relation: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityNeighborsArgs {
+    #[schemars(description = "Entity id whose neighbors to fetch.")]
+    pub entity_id: i64,
+    #[schemars(description = "Max neighbors to return (default 20).")]
+    pub limit: Option<i64>,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }
