@@ -438,6 +438,28 @@ fn export_data_new_fields_default_when_absent() {
 }
 
 #[test]
+fn export_all_includes_entity_graph() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let o = db
+        .save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    db.record_mentions(
+        o.id,
+        &["Acme".to_string(), "Bob".to_string()],
+        None,
+        "project",
+    )
+    .unwrap();
+
+    let data = db.export_all().unwrap();
+    assert_eq!(data.entities.len(), 2);
+    assert!(data.entity_aliases.len() >= 2); // canonical alias per stub
+    assert_eq!(data.edges.len(), 1); // co_mentioned Acme<->Bob
+    assert_eq!(data.mentions.len(), 2);
+}
+
+#[test]
 fn entity_alias_and_mention_models_serialize() {
     use crate::models::{EntityAlias, Mention};
     let a = EntityAlias {

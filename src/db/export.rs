@@ -5,11 +5,9 @@ use rusqlite::params;
 use super::{Database, DbResult};
 
 impl Database {
-    /// Export all observations and sessions as a portable JSON structure.
-    ///
-    /// NOTE: entities/entity_aliases/edges/mentions (schema v2, Fase 0a) are
-    /// intentionally NOT exported yet. This must be added in Fase 0b before
-    /// entities can be relied on for backup/sync.
+    /// Export all observations, sessions, entities, aliases, edges, and mentions
+    /// as a portable JSON structure. All non-deleted rows are included; entities
+    /// and edges are also filtered to exclude soft-deleted entries.
     pub fn export_all(&self) -> DbResult<ExportData> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, type, title, content, project, scope,
@@ -40,15 +38,66 @@ impl Database {
             });
         }
 
+        // Entities (skip soft-deleted)
+        let mut stmt = self.conn.prepare(
+            "SELECT id, kind, canonical_name, slug, tier, salience, compiled_truth,
+                    compiled_at, project, scope, created_at, updated_at, deleted_at
+             FROM entities WHERE deleted_at IS NULL ORDER BY id",
+        )?;
+        let mut entities = Vec::new();
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            entities.push(Self::row_to_entity(row));
+        }
+
+        // Aliases
+        let mut stmt = self.conn.prepare(
+            "SELECT entity_id, alias_normalized, source FROM entity_aliases ORDER BY id",
+        )?;
+        let mut entity_aliases = Vec::new();
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            entity_aliases.push(crate::models::EntityAlias {
+                entity_id: row.get(0)?,
+                alias_normalized: row.get(1)?,
+                source: row.get(2)?,
+            });
+        }
+
+        // Edges (skip soft-deleted)
+        let mut stmt = self.conn.prepare(
+            "SELECT id, src_entity_id, dst_entity_id, edge_type, evidence_count,
+                    confidence, first_seen, last_seen, deleted_at
+             FROM edges WHERE deleted_at IS NULL ORDER BY id",
+        )?;
+        let mut edges = Vec::new();
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            edges.push(Self::row_to_edge(row));
+        }
+
+        // Mentions
+        let mut stmt = self
+            .conn
+            .prepare("SELECT observation_id, entity_id FROM mentions ORDER BY id")?;
+        let mut mentions = Vec::new();
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            mentions.push(crate::models::Mention {
+                observation_id: row.get(0)?,
+                entity_id: row.get(1)?,
+            });
+        }
+
         Ok(ExportData {
             version: crate::schema::SCHEMA_VERSION,
             exported_at: now_utc(),
             observations,
             sessions,
-            entities: Vec::new(),
-            entity_aliases: Vec::new(),
-            edges: Vec::new(),
-            mentions: Vec::new(),
+            entities,
+            entity_aliases,
+            edges,
+            mentions,
         })
     }
 
