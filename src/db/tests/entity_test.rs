@@ -424,3 +424,39 @@ fn entity_link_and_neighbors_args_defaults() {
     assert_eq!(n.entity_id, 5);
     assert!(n.limit.is_none());
 }
+
+#[test]
+fn export_data_new_fields_default_when_absent() {
+    use crate::models::ExportData;
+    // Old Fase-0a export JSON has no entity fields — must still deserialize.
+    let json = r#"{"version":2,"exported_at":"t","observations":[],"sessions":[]}"#;
+    let data: ExportData = serde_json::from_str(json).unwrap();
+    assert!(data.entities.is_empty());
+    assert!(data.entity_aliases.is_empty());
+    assert!(data.edges.is_empty());
+    assert!(data.mentions.is_empty());
+}
+
+#[test]
+fn entity_alias_and_mention_models_serialize() {
+    use crate::models::{EntityAlias, Mention};
+    let a = EntityAlias {
+        entity_id: 1,
+        alias_normalized: "acme".to_string(),
+        source: Some("provided".to_string()),
+    };
+    let m = Mention {
+        observation_id: 5,
+        entity_id: 1,
+    };
+    assert!(
+        serde_json::to_string(&a)
+            .unwrap()
+            .contains("\"alias_normalized\":\"acme\"")
+    );
+    assert!(
+        serde_json::to_string(&m)
+            .unwrap()
+            .contains("\"observation_id\":5")
+    );
+}

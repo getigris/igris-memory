@@ -41,3 +41,20 @@ pub struct EntityNeighbor {
     pub edge: Edge,
     pub entity: Entity,
 }
+
+/// A normalized alias row for portability (export/import).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+pub struct EntityAlias {
+    pub entity_id: i64,
+    pub alias_normalized: String,
+    pub source: Option<String>,
+}
+
+/// An observation↔entity mention row for portability (export/import).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+pub struct Mention {
+    pub observation_id: i64,
+    pub entity_id: i64,
+}

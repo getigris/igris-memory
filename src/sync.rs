@@ -106,6 +106,10 @@ pub fn import_from_dir(db: &Database, dir: &Path) -> Result<ImportResult, IgrisE
         exported_at: manifest.exported_at,
         observations,
         sessions,
+        entities: Vec::new(),
+        entity_aliases: Vec::new(),
+        edges: Vec::new(),
+        mentions: Vec::new(),
     };
 
     db.import_data(&data)

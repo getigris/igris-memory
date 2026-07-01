@@ -45,6 +45,10 @@ impl Database {
             exported_at: now_utc(),
             observations,
             sessions,
+            entities: Vec::new(),
+            entity_aliases: Vec::new(),
+            edges: Vec::new(),
+            mentions: Vec::new(),
         })
     }
 
@@ -139,6 +143,10 @@ impl Database {
             observations_skipped: obs_skipped,
             sessions_imported: sess_imported,
             sessions_skipped: sess_skipped,
+            entities_imported: 0,
+            entities_skipped: 0,
+            edges_imported: 0,
+            mentions_imported: 0,
         })
     }
 }
