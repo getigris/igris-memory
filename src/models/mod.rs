@@ -4,7 +4,8 @@ mod observation;
 mod session;
 mod stats;
 
-pub use entity::Entity;
+#[allow(unused_imports)]
+pub use entity::{Edge, Entity, EntityNeighbor};
 pub use export::{ExportData, ImportResult};
 pub use observation::{Observation, SearchResult, Timeline};
 pub use session::Session;

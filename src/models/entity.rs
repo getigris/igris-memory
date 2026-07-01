@@ -18,3 +18,28 @@ pub struct Entity {
     pub updated_at: String,
     pub deleted_at: Option<String>,
 }
+
+/// A typed relation between two entities. Symmetric edges (e.g. `co_mentioned`)
+/// are stored once with `src_entity_id < dst_entity_id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+pub struct Edge {
+    pub id: i64,
+    pub src_entity_id: i64,
+    pub dst_entity_id: i64,
+    pub edge_type: String,
+    pub evidence_count: i64,
+    pub confidence: f64,
+    pub first_seen: String,
+    pub last_seen: String,
+    pub deleted_at: Option<String>,
+}
+
+/// A neighbor in the entity graph: the connecting edge plus the entity on the
+/// other end.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+pub struct EntityNeighbor {
+    pub edge: Edge,
+    pub entity: Entity,
+}

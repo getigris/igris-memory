@@ -191,3 +191,39 @@ fn entity_upsert_args_default_scope_is_project() {
     assert_eq!(args.name, "Jane Doe");
     assert!(args.aliases.is_none());
 }
+
+#[test]
+fn edge_and_neighbor_models_serialize() {
+    use crate::models::{Edge, Entity, EntityNeighbor};
+    let edge = Edge {
+        id: 1,
+        src_entity_id: 2,
+        dst_entity_id: 3,
+        edge_type: "co_mentioned".to_string(),
+        evidence_count: 4,
+        confidence: 1.0,
+        first_seen: "2026-07-01T00:00:00Z".to_string(),
+        last_seen: "2026-07-01T00:00:00Z".to_string(),
+        deleted_at: None,
+    };
+    let entity = Entity {
+        id: 3,
+        kind: "company".to_string(),
+        canonical_name: "Acme".to_string(),
+        slug: "acme".to_string(),
+        tier: 3,
+        salience: 0.0,
+        compiled_truth: None,
+        compiled_at: None,
+        project: None,
+        scope: "project".to_string(),
+        created_at: "2026-07-01T00:00:00Z".to_string(),
+        updated_at: "2026-07-01T00:00:00Z".to_string(),
+        deleted_at: None,
+    };
+    let n = EntityNeighbor { edge, entity };
+    let json = serde_json::to_string(&n).unwrap();
+    assert!(json.contains("\"edge_type\":\"co_mentioned\""));
+    assert!(json.contains("\"evidence_count\":4"));
+    assert!(json.contains("\"canonical_name\":\"Acme\""));
+}
