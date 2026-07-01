@@ -206,6 +206,29 @@ pub struct EntityNeighborsArgs {
     pub limit: Option<i64>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityTimelineArgs {
+    #[schemars(description = "Entity id whose timeline (mentioning observations) to fetch.")]
+    pub entity_id: i64,
+    #[schemars(description = "Max observations to return, most recent first (default 20).")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BriefArgs {
+    #[schemars(description = "Entity id to brief. Provide this OR slug.")]
+    pub id: Option<i64>,
+    #[schemars(description = "Entity slug to brief (e.g. 'acme'). Provide this OR id.")]
+    pub slug: Option<String>,
+    #[schemars(description = "Project to scope the slug lookup (omit for global).")]
+    pub project: Option<String>,
+    #[schemars(
+        description = "Visibility scope for the slug lookup: 'project' (default) or 'personal'."
+    )]
+    #[serde(default = "default_scope")]
+    pub scope: String,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

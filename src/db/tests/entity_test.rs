@@ -724,3 +724,16 @@ fn entity_brief_bundles_truth_neighbors_and_recent() {
     assert_eq!(brief.recent.len(), 1);
     assert_eq!(brief.recent[0].id, o.id);
 }
+
+#[test]
+fn timeline_and_brief_args_defaults() {
+    let tl: crate::server::args::EntityTimelineArgs =
+        serde_json::from_str(r#"{"entity_id":7}"#).unwrap();
+    assert_eq!(tl.entity_id, 7);
+    assert!(tl.limit.is_none());
+
+    let b: crate::server::args::BriefArgs = serde_json::from_str(r#"{"slug":"acme"}"#).unwrap();
+    assert_eq!(b.slug.as_deref(), Some("acme"));
+    assert!(b.id.is_none());
+    assert_eq!(b.scope, "project");
+}

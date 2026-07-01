@@ -399,6 +399,63 @@ impl IgrisServer {
     }
 
     #[tool(
+        name = "igris_entity_timeline",
+        description = "List the observations that mention an entity, most recent first — the entity's chronological history."
+    )]
+    fn igris_entity_timeline(&self, Parameters(args): Parameters<EntityTimelineArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.entity_timeline(args.entity_id, args.limit.unwrap_or(20)) {
+            Ok(obs) => to_json(&obs),
+            Err(e) => {
+                tracing::warn!(tool = "igris_entity_timeline", error = %e, "db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(
+            tool = "igris_entity_timeline",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
+        result
+    }
+
+    #[tool(
+        name = "igris_brief",
+        description = "Get a one-call brief for an entity (by id or slug): a freshly compiled summary, its strongest connections, and its recent mentions with citations. Use this to load everything known about a person/company/project at once."
+    )]
+    fn igris_brief(&self, Parameters(args): Parameters<BriefArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let entity_id = match (args.id, args.slug.as_deref()) {
+            (Some(id), _) => Ok(id),
+            (None, Some(slug)) => db
+                .get_entity_by_slug(slug, args.project.as_deref(), &args.scope)
+                .map(|e| e.id),
+            (None, None) => Err(IgrisError::validation(
+                "igris_brief requires either 'id' or 'slug'".to_string(),
+            )),
+        };
+        let result = match entity_id.and_then(|id| db.entity_brief(id)) {
+            Ok(brief) => to_json(&brief),
+            Err(e) => {
+                tracing::warn!(tool = "igris_brief", error = %e, "not found or db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(
+            tool = "igris_brief",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
+        result
+    }
+
+    #[tool(
         name = "igris_export",
         description = "Export all memories and sessions as JSON. Use for backup or migration between machines."
     )]
