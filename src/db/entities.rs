@@ -278,7 +278,7 @@ impl BrainStore for Database {
             "SELECT {} FROM edges
              WHERE (src_entity_id = ?1 OR dst_entity_id = ?1)
                AND deleted_at IS NULL
-             ORDER BY evidence_count DESC, datetime(last_seen) DESC
+             ORDER BY evidence_count DESC, datetime(last_seen) DESC, id DESC
              LIMIT ?2",
             Self::EDGE_COLS
         ))?;

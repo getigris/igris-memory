@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS entities (
     deleted_at     TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_slug
-    ON entities(slug, IFNULL(project, ''), scope);
+    ON entities(slug, IFNULL(project, ''), scope) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_entity_kind    ON entities(kind);
 CREATE INDEX IF NOT EXISTS idx_entity_deleted ON entities(deleted_at);
 
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS entity_aliases (
     alias_normalized TEXT NOT NULL,
     source           TEXT,
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (entity_id) REFERENCES entities(id)
+    FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_alias_unique
     ON entity_aliases(alias_normalized, entity_id);
@@ -116,8 +116,8 @@ CREATE TABLE IF NOT EXISTS edges (
     first_seen     TEXT NOT NULL DEFAULT (datetime('now')),
     last_seen      TEXT NOT NULL DEFAULT (datetime('now')),
     deleted_at     TEXT,
-    FOREIGN KEY (src_entity_id) REFERENCES entities(id),
-    FOREIGN KEY (dst_entity_id) REFERENCES entities(id)
+    FOREIGN KEY (src_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+    FOREIGN KEY (dst_entity_id) REFERENCES entities(id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_edge_unique
     ON edges(src_entity_id, dst_entity_id, edge_type);
@@ -128,8 +128,8 @@ CREATE TABLE IF NOT EXISTS mentions (
     observation_id INTEGER NOT NULL,
     entity_id      INTEGER NOT NULL,
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (observation_id) REFERENCES observations(id),
-    FOREIGN KEY (entity_id) REFERENCES entities(id)
+    FOREIGN KEY (observation_id) REFERENCES observations(id) ON DELETE CASCADE,
+    FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mention_unique
     ON mentions(observation_id, entity_id);

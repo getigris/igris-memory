@@ -726,6 +726,59 @@ fn entity_brief_bundles_truth_neighbors_and_recent() {
 }
 
 #[test]
+fn purge_succeeds_when_deleted_observation_has_mentions() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let o = db
+        .save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    db.record_mentions(o.id, &["Acme".to_string()], None, "project")
+        .unwrap();
+
+    let mention_count_before: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM mentions WHERE observation_id = ?1",
+            [o.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(mention_count_before, 1);
+
+    assert!(db.delete_observation(o.id).unwrap());
+
+    let result = db.purge(0);
+    assert!(
+        result.is_ok(),
+        "purge must succeed even when a purged observation has mentions rows: {result:?}"
+    );
+    assert_eq!(result.unwrap().observations_purged, 1);
+
+    let obs_count: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM observations WHERE id = ?1",
+            [o.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(obs_count, 0, "observation should be hard-deleted");
+
+    let mention_count_after: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM mentions WHERE observation_id = ?1",
+            [o.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        mention_count_after, 0,
+        "mentions rows should cascade-delete with the observation"
+    );
+}
+
+#[test]
 fn timeline_and_brief_args_defaults() {
     let tl: crate::server::args::EntityTimelineArgs =
         serde_json::from_str(r#"{"entity_id":7}"#).unwrap();
