@@ -2,7 +2,7 @@ use crate::models::{ExportData, ImportResult, Session};
 use crate::utils::{hash_content, now_utc};
 use rusqlite::params;
 
-use super::{Database, DbResult};
+use super::{Database, DbResult, OptionalExt};
 
 impl Database {
     /// Export all observations, sessions, entities, aliases, edges, and mentions
@@ -101,14 +101,22 @@ impl Database {
         })
     }
 
-    /// Import observations and sessions from an export, deduplicating by content hash.
+    /// Import observations, sessions, and the entity graph from an export.
+    /// Deduplicates observations by content hash and entities by slug+project+scope;
+    /// remaps old ids to the destination's ids so aliases/edges/mentions stay linked.
     pub fn import_data(&self, data: &ExportData) -> DbResult<ImportResult> {
+        use std::collections::HashMap;
+
         let mut obs_imported: i64 = 0;
         let mut obs_skipped: i64 = 0;
         let mut sess_imported: i64 = 0;
         let mut sess_skipped: i64 = 0;
+        let mut ent_imported: i64 = 0;
+        let mut ent_skipped: i64 = 0;
+        let mut edges_imported: i64 = 0;
+        let mut mentions_imported: i64 = 0;
 
-        // Import sessions first (observations may reference them)
+        // Sessions first (observations may reference them).
         for session in &data.sessions {
             let exists: bool = self.conn.query_row(
                 "SELECT COUNT(*) > 0 FROM sessions WHERE id = ?1",
@@ -134,30 +142,32 @@ impl Database {
             sess_imported += 1;
         }
 
-        // Import observations, dedup by normalized_hash
+        // Observations — dedup by hash; record old->new id (dupes map to existing id).
+        let mut obs_map: HashMap<i64, i64> = HashMap::new();
         for obs in &data.observations {
-            // Skip soft-deleted observations
             if obs.deleted_at.is_some() {
                 obs_skipped += 1;
                 continue;
             }
-
             let content_hash = hash_content(&obs.content);
-            let dup_exists: bool = self.conn.query_row(
-                "SELECT COUNT(*) > 0 FROM observations
-                 WHERE normalized_hash = ?1
-                   AND IFNULL(project, '') = IFNULL(?2, '')
-                   AND scope = ?3
-                   AND type = ?4
-                   AND deleted_at IS NULL",
-                params![content_hash, obs.project, obs.scope, obs.observation_type],
-                |row| row.get(0),
-            )?;
-            if dup_exists {
+            let existing: Option<i64> = self
+                .conn
+                .query_row(
+                    "SELECT id FROM observations
+                     WHERE normalized_hash = ?1
+                       AND IFNULL(project, '') = IFNULL(?2, '')
+                       AND scope = ?3
+                       AND type = ?4
+                       AND deleted_at IS NULL",
+                    params![content_hash, obs.project, obs.scope, obs.observation_type],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(id) = existing {
                 obs_skipped += 1;
+                obs_map.insert(obs.id, id);
                 continue;
             }
-
             let tags_json = obs
                 .tags
                 .as_ref()
@@ -184,7 +194,107 @@ impl Database {
                     obs.updated_at,
                 ],
             )?;
+            obs_map.insert(obs.id, self.conn.last_insert_rowid());
             obs_imported += 1;
+        }
+
+        // Entities — dedup by (slug, project, scope); record old->new id.
+        let mut ent_map: HashMap<i64, i64> = HashMap::new();
+        for e in &data.entities {
+            if e.deleted_at.is_some() {
+                ent_skipped += 1;
+                continue;
+            }
+            let existing: Option<i64> = self
+                .conn
+                .query_row(
+                    "SELECT id FROM entities
+                     WHERE slug = ?1
+                       AND IFNULL(project, '') = IFNULL(?2, '')
+                       AND scope = ?3
+                       AND deleted_at IS NULL",
+                    params![e.slug, e.project, e.scope],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(id) = existing {
+                ent_skipped += 1;
+                ent_map.insert(e.id, id);
+                continue;
+            }
+            self.conn.execute(
+                "INSERT INTO entities
+                 (kind, canonical_name, slug, tier, salience, compiled_truth,
+                  compiled_at, project, scope, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    e.kind,
+                    e.canonical_name,
+                    e.slug,
+                    e.tier,
+                    e.salience,
+                    e.compiled_truth,
+                    e.compiled_at,
+                    e.project,
+                    e.scope,
+                    e.created_at,
+                    e.updated_at,
+                ],
+            )?;
+            ent_map.insert(e.id, self.conn.last_insert_rowid());
+            ent_imported += 1;
+        }
+
+        // Aliases — remap entity_id, idempotent via unique index.
+        for a in &data.entity_aliases {
+            if let Some(&eid) = ent_map.get(&a.entity_id) {
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO entity_aliases (entity_id, alias_normalized, source)
+                     VALUES (?1, ?2, ?3)",
+                    params![eid, a.alias_normalized, a.source],
+                )?;
+            }
+        }
+
+        // Edges — remap both endpoints; skip soft-deleted; count only new rows.
+        for ed in &data.edges {
+            if ed.deleted_at.is_some() {
+                continue;
+            }
+            if let (Some(&s), Some(&d)) = (
+                ent_map.get(&ed.src_entity_id),
+                ent_map.get(&ed.dst_entity_id),
+            ) {
+                let changed = self.conn.execute(
+                    "INSERT OR IGNORE INTO edges
+                     (src_entity_id, dst_entity_id, edge_type, evidence_count,
+                      confidence, first_seen, last_seen)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        s,
+                        d,
+                        ed.edge_type,
+                        ed.evidence_count,
+                        ed.confidence,
+                        ed.first_seen,
+                        ed.last_seen
+                    ],
+                )?;
+                edges_imported += changed as i64;
+            }
+        }
+
+        // Mentions — remap observation_id and entity_id; count only new rows.
+        for m in &data.mentions {
+            if let (Some(&oid), Some(&eid)) =
+                (obs_map.get(&m.observation_id), ent_map.get(&m.entity_id))
+            {
+                let changed = self.conn.execute(
+                    "INSERT OR IGNORE INTO mentions (observation_id, entity_id) VALUES (?1, ?2)",
+                    params![oid, eid],
+                )?;
+                mentions_imported += changed as i64;
+            }
         }
 
         Ok(ImportResult {
@@ -192,10 +302,10 @@ impl Database {
             observations_skipped: obs_skipped,
             sessions_imported: sess_imported,
             sessions_skipped: sess_skipped,
-            entities_imported: 0,
-            entities_skipped: 0,
-            edges_imported: 0,
-            mentions_imported: 0,
+            entities_imported: ent_imported,
+            entities_skipped: ent_skipped,
+            edges_imported,
+            mentions_imported,
         })
     }
 }

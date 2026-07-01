@@ -482,3 +482,56 @@ fn entity_alias_and_mention_models_serialize() {
             .contains("\"observation_id\":5")
     );
 }
+
+#[test]
+fn import_roundtrips_entity_graph_with_remapped_ids() {
+    use crate::store::BrainStore;
+    // Source DB with an observation + two co-mentioned entities.
+    let src = Database::open_in_memory().unwrap();
+    let o = src
+        .save_observation(
+            "meeting", "notes", "manual", None, "project", None, None, None,
+        )
+        .unwrap();
+    src.record_mentions(
+        o.id,
+        &["Acme".to_string(), "Bob".to_string()],
+        None,
+        "project",
+    )
+    .unwrap();
+    let data = src.export_all().unwrap();
+
+    // Destination DB already has ONE unrelated entity, so autoincrement ids differ.
+    let dst = Database::open_in_memory().unwrap();
+    dst.upsert_entity("person", "Zara", &[], None, "project")
+        .unwrap();
+
+    let result = dst.import_data(&data).unwrap();
+    assert_eq!(result.entities_imported, 2);
+    assert_eq!(result.mentions_imported, 2);
+    assert_eq!(result.edges_imported, 1);
+
+    // The imported Acme entity resolves and has Bob as a neighbor — proving
+    // edge/mention ids were remapped to the destination's entity ids.
+    let acme = dst.get_entity_by_slug("acme", None, "project").unwrap();
+    let neighbors = dst.entity_neighbors(acme.id, 10).unwrap();
+    assert_eq!(neighbors.len(), 1);
+    assert_eq!(neighbors[0].entity.canonical_name, "Bob");
+
+    // Importing the same data again is idempotent (dedup): no duplicates.
+    let again = dst.import_data(&data).unwrap();
+    assert_eq!(again.entities_imported, 0);
+    assert_eq!(again.edges_imported, 0);
+    assert_eq!(again.mentions_imported, 0);
+}
+
+#[test]
+fn import_old_export_without_entities_still_works() {
+    let db = Database::open_in_memory().unwrap();
+    let data: crate::models::ExportData =
+        serde_json::from_str(r#"{"version":2,"exported_at":"t","observations":[],"sessions":[]}"#)
+            .unwrap();
+    let r = db.import_data(&data).unwrap();
+    assert_eq!(r.entities_imported, 0);
+}
