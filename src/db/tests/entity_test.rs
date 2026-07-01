@@ -565,3 +565,54 @@ fn sync_roundtrip_preserves_entity_graph() {
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn v1_database_upgrades_to_v2_preserving_data() {
+    use crate::schema::SCHEMA_V1;
+    use rusqlite::Connection;
+
+    let path = std::env::temp_dir().join("igmem_v1_upgrade_test_0bport.db");
+    let _ = std::fs::remove_file(&path);
+
+    // Simulate a Fase-0a (v1) database: apply ONLY SCHEMA_V1, set user_version = 1,
+    // and insert one observation.
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+        conn.execute(
+            "INSERT INTO observations (type, title, content, scope) VALUES ('manual','t','c','project')",
+            [],
+        )
+        .unwrap();
+    }
+
+    // Open through Database → migration must add v2 tables and bump user_version.
+    {
+        let db = crate::db::Database::open(&path, None).unwrap();
+        let version: u32 = db
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        for table in ["entities", "entity_aliases", "edges", "mentions"] {
+            let n: i64 = db
+                .conn
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 1, "v2 table {table} should exist after upgrade");
+        }
+        // Pre-existing v1 data survived.
+        let obs_count: i64 = db
+            .conn
+            .query_row("SELECT count(*) FROM observations", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(obs_count, 1);
+    }
+
+    let _ = std::fs::remove_file(&path);
+}
