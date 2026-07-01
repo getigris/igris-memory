@@ -9,7 +9,6 @@ use crate::db::DbResult;
 use crate::models::Entity;
 
 /// Storage contract for the entity/graph layer.
-#[allow(dead_code)] // TODO(fase-0a): remove once used in Task 6
 pub trait BrainStore {
     /// Create an entity, or update it in place if one with the same slug already
     /// exists (within the same project + scope). Registers `canonical_name` and

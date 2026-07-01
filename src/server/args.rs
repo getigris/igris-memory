@@ -148,6 +148,40 @@ pub struct SessionSummaryArgs {
     pub project: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityUpsertArgs {
+    #[schemars(
+        description = "Entity kind: person, company, project, concept, place, product, or other."
+    )]
+    pub kind: String,
+    #[schemars(description = "Canonical display name (e.g. 'Jane Doe', 'Acme Corp').")]
+    pub name: String,
+    #[schemars(
+        description = "Alternate names/aliases that should resolve to this entity (e.g. ['JD', 'Jane'])."
+    )]
+    pub aliases: Option<Vec<String>>,
+    #[schemars(description = "Project this entity belongs to (omit for global).")]
+    pub project: Option<String>,
+    #[schemars(description = "Visibility scope: 'project' (default) or 'personal'.")]
+    #[serde(default = "default_scope")]
+    pub scope: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityGetArgs {
+    #[schemars(description = "Entity id to fetch. Provide this OR slug.")]
+    pub id: Option<i64>,
+    #[schemars(description = "Entity slug to fetch (e.g. 'jane-doe'). Provide this OR id.")]
+    pub slug: Option<String>,
+    #[schemars(description = "Project to scope the slug lookup (omit for global).")]
+    pub project: Option<String>,
+    #[schemars(
+        description = "Visibility scope for the slug lookup: 'project' (default) or 'personal'."
+    )]
+    #[serde(default = "default_scope")]
+    pub scope: String,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

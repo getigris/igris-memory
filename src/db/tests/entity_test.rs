@@ -163,3 +163,14 @@ fn validate_entity_rejects_empty_name() {
     use crate::validation::validate_entity;
     assert!(validate_entity("person", "   ", "project").is_err());
 }
+
+#[test]
+fn entity_upsert_args_default_scope_is_project() {
+    // Deserializing without a scope must default to "project",
+    // matching the tool contract.
+    let json = r#"{"kind":"person","name":"Jane Doe"}"#;
+    let args: crate::server::args::EntityUpsertArgs = serde_json::from_str(json).unwrap();
+    assert_eq!(args.scope, "project");
+    assert_eq!(args.name, "Jane Doe");
+    assert!(args.aliases.is_none());
+}

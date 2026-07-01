@@ -1,9 +1,10 @@
-mod args;
+pub mod args;
 
 use args::*;
 
 use crate::db::Database;
 use crate::errors::IgrisError;
+use crate::store::BrainStore;
 use crate::topic;
 use rmcp::{
     ServerHandler,
@@ -277,6 +278,67 @@ impl IgrisServer {
     fn igris_suggest_topic_key(&self, Parameters(args): Parameters<SuggestTopicKeyArgs>) -> String {
         let key = topic::suggest_topic_key(&args.observation_type, &args.title, &args.content);
         serde_json::json!({ "topic_key": key }).to_string()
+    }
+
+    #[tool(
+        name = "igris_entity_upsert",
+        description = "Create or update a first-class entity (person, company, project, concept, ...). Idempotent by name within a project+scope: calling again with the same name updates in place and registers new aliases. Use this to declare the who/what your memories are about."
+    )]
+    fn igris_entity_upsert(&self, Parameters(args): Parameters<EntityUpsertArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.upsert_entity(
+            &args.kind,
+            &args.name,
+            args.aliases.as_deref().unwrap_or(&[]),
+            args.project.as_deref(),
+            &args.scope,
+        ) {
+            Ok(entity) => to_json(&entity),
+            Err(e) => {
+                tracing::warn!(tool = "igris_entity_upsert", error = %e, "validation/db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(
+            tool = "igris_entity_upsert",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
+        result
+    }
+
+    #[tool(
+        name = "igris_entity_get",
+        description = "Fetch a single entity by id or by slug. When using slug, pass the same project+scope the entity was created under."
+    )]
+    fn igris_entity_get(&self, Parameters(args): Parameters<EntityGetArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let lookup = match (args.id, args.slug.as_deref()) {
+            (Some(id), _) => db.get_entity(id),
+            (None, Some(slug)) => db.get_entity_by_slug(slug, args.project.as_deref(), &args.scope),
+            (None, None) => Err(IgrisError::validation(
+                "igris_entity_get requires either 'id' or 'slug'".to_string(),
+            )),
+        };
+        let result = match lookup {
+            Ok(entity) => to_json(&entity),
+            Err(e) => {
+                tracing::warn!(tool = "igris_entity_get", error = %e, "not found or db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(
+            tool = "igris_entity_get",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
+        result
     }
 
     #[tool(
