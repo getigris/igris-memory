@@ -124,8 +124,8 @@ Structure the summary as:
 
 | Tool | When to Use | Parameters |
 |------|-------------|------------|
-| `igris_export` | Backup all memories as JSON. | _(none)_ |
-| `igris_import` | Restore from JSON export. Deduplicates by content hash. | `data` (required) |
+| `igris_export` | Backup all memories AND the entity graph (entities, aliases, edges, mentions) as JSON. | _(none)_ |
+| `igris_import` | Restore from JSON export. Dedups observations by hash and entities by slug; remaps ids to keep the graph linked. | `data` (required) |
 
 ### Topic Keys
 

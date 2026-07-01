@@ -65,7 +65,7 @@ src/
 │   ├── export.rs        # Full export/import with hash-based dedup
 │   └── purge.rs         # Hard-delete soft-deleted entries + VACUUM
 ├── server/
-│   ├── mod.rs       # IgrisServer with #[tool_router] — 15 MCP tools
+│   ├── mod.rs       # IgrisServer with #[tool_router] — 19 MCP tools
 │   └── args.rs      # Tool parameter schemas (schemars JsonSchema)
 ├── http/
 │   ├── mod.rs       # Axum server setup, AppState = Arc<Mutex<Database>>
@@ -91,6 +91,26 @@ src/
 - **Soft deletes**: `deleted_at` timestamp, all queries filter `WHERE deleted_at IS NULL`; `igris_purge` hard-deletes + VACUUMs
 - **FTS5 sync**: INSERT/UPDATE/DELETE triggers keep `observations_fts` in sync with `observations`
 - **Logging to stderr**: stdout is reserved for MCP stdio transport; all tracing goes to stderr
+
+### Sync
+
+The `igmem sync export` command writes a complete database export to a directory containing:
+
+```
+sync-dir/
+├── manifest.json             # Metadata: version, export timestamp, machine ID, counts
+├── sessions.json             # Array of all sessions
+├── entities.json             # Array of all entities (Fase 0a)
+├── entity_aliases.json       # Array of all entity aliases (Fase 0a)
+├── edges.json                # Array of all edges (entity relationships) (Fase 0a)
+├── mentions.json             # Array of all observation-entity mentions (Fase 0a)
+└── observations/
+    ├── chunk_0000.json       # Observations 0–99
+    ├── chunk_0001.json       # Observations 100–199
+    └── ...
+```
+
+Chunked observation files allow large exports to be split and re-imported incrementally. The `igmem sync import` command reads this structure and populates the database, deduplicating observations by content hash and entities by slug, then remapping IDs to preserve entity-graph relationships.
 
 ### Database
 
