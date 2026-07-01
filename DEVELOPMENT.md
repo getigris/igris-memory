@@ -65,7 +65,7 @@ src/
 │   ├── export.rs        # Full export/import with hash-based dedup
 │   └── purge.rs         # Hard-delete soft-deleted entries + VACUUM
 ├── server/
-│   ├── mod.rs       # IgrisServer with #[tool_router] — 19 MCP tools
+│   ├── mod.rs       # IgrisServer with #[tool_router] — 21 MCP tools
 │   └── args.rs      # Tool parameter schemas (schemars JsonSchema)
 ├── http/
 │   ├── mod.rs       # Axum server setup, AppState = Arc<Mutex<Database>>
@@ -74,7 +74,7 @@ src/
 │   ├── mod.rs       # App state, Screen enum, refresh logic
 │   ├── handler.rs   # Keyboard event handling (vim-style + arrows)
 │   └── ui.rs        # ratatui rendering (tabs, table, detail, search, stats)
-├── models/          # Observation, Session, SearchResult, Timeline, Stats, ExportData, Entity, Edge, EntityNeighbor
+├── models/          # Observation, Session, SearchResult, Timeline, Stats, ExportData, Entity, Edge, EntityNeighbor, EntityBrief
 ├── errors.rs        # IgrisError with ErrorCode → HTTP status mapping
 ├── validation.rs    # Type/scope validation, non-empty checks
 ├── topic.rs         # suggest_topic_key: type → family, title → slug

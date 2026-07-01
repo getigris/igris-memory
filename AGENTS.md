@@ -101,6 +101,8 @@ Structure the summary as:
 | `igris_entity_get` | Fetch an entity by `id` or `slug`. | `id?` or `slug?`, `project?`, `scope?` |
 | `igris_entity_link` | Create/strengthen a typed relation between two entities (by id). | `src_id`, `dst_id`, `relation` (required) |
 | `igris_entity_neighbors` | List an entity's connected entities, strongest first. | `entity_id` (required), `limit?` |
+| `igris_entity_timeline` | List observations mentioning an entity, most recent first. | `entity_id` (required), `limit?` |
+| `igris_brief` | One-call summary of an entity: Compiled Truth + top connections + recent mentions. | `id?` or `slug?`, `project?`, `scope?` |
 
 #### Saving & Updating
 
