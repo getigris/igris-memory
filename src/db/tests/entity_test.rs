@@ -535,3 +535,33 @@ fn import_old_export_without_entities_still_works() {
     let r = db.import_data(&data).unwrap();
     assert_eq!(r.entities_imported, 0);
 }
+
+#[test]
+fn sync_roundtrip_preserves_entity_graph() {
+    use crate::store::BrainStore;
+    let tmp = std::env::temp_dir().join("igmem_sync_entity_test_0bport");
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    let src = Database::open_in_memory().unwrap();
+    let o = src
+        .save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    src.record_mentions(
+        o.id,
+        &["Acme".to_string(), "Bob".to_string()],
+        None,
+        "project",
+    )
+    .unwrap();
+    crate::sync::export_to_dir(&src, &tmp).unwrap();
+
+    let dst = Database::open_in_memory().unwrap();
+    crate::sync::import_from_dir(&dst, &tmp).unwrap();
+
+    let acme = dst.get_entity_by_slug("acme", None, "project").unwrap();
+    let neighbors = dst.entity_neighbors(acme.id, 10).unwrap();
+    assert_eq!(neighbors.len(), 1);
+    assert_eq!(neighbors[0].entity.canonical_name, "Bob");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
