@@ -378,6 +378,21 @@ fn entity_neighbors_returns_other_end_strongest_first() {
 }
 
 #[test]
+fn save_args_accepts_optional_mentions() {
+    let json = r#"{"title":"t","content":"c","mentions":["Acme","Jane"]}"#;
+    let args: crate::server::args::SaveArgs = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        args.mentions.as_deref(),
+        Some(&["Acme".to_string(), "Jane".to_string()][..])
+    );
+
+    // Absent mentions deserialize to None (backward compatible)
+    let json2 = r#"{"title":"t","content":"c"}"#;
+    let args2: crate::server::args::SaveArgs = serde_json::from_str(json2).unwrap();
+    assert!(args2.mentions.is_none());
+}
+
+#[test]
 fn add_mention_is_idempotent() {
     use crate::store::BrainStore;
     let db = Database::open_in_memory().unwrap();

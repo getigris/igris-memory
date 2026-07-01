@@ -67,7 +67,16 @@ impl IgrisServer {
             args.tags.as_deref(),
             args.session_id.as_deref(),
         ) {
-            Ok(obs) => to_json(&obs),
+            Ok(obs) => {
+                if let Some(mentions) = args.mentions.as_deref()
+                    && !mentions.is_empty()
+                    && let Err(e) =
+                        db.record_mentions(obs.id, mentions, args.project.as_deref(), &args.scope)
+                {
+                    tracing::warn!(tool = "igris_save", error = %e, "mention wiring failed");
+                }
+                to_json(&obs)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_save", error = %e, "validation/db error");
                 err_json(e)

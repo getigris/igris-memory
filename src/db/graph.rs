@@ -9,9 +9,6 @@ use crate::models::Edge;
 
 use super::Database;
 
-// Not yet reachable from `main` (no MCP/HTTP handler wired in this phase),
-// only used via `#[cfg(test)]` — see the matching note on `models::Edge`.
-#[allow(dead_code)]
 impl Database {
     pub(crate) fn row_to_edge(row: &rusqlite::Row) -> Edge {
         Edge {

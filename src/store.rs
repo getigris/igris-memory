@@ -33,17 +33,12 @@ pub trait BrainStore {
         scope: &str,
     ) -> DbResult<Entity>;
 
-    // The five methods below aren't yet reachable from `main` (no MCP/HTTP
-    // handler wired in this phase) — only exercised via `#[cfg(test)]`, so
-    // plain `cargo clippy` still sees them as dead code.
     /// Link an observation to an entity (idempotent).
-    #[allow(dead_code)]
     fn add_mention(&self, observation_id: i64, entity_id: i64) -> DbResult<()>;
 
     /// Resolve a mention string to an existing entity by normalized alias
     /// (within project + scope), or create a tier-3 stub entity (`kind="other"`)
     /// when none matches. Deterministic — no LLM.
-    #[allow(dead_code)]
     fn resolve_or_stub_entity(
         &self,
         mention: &str,
@@ -53,7 +48,6 @@ pub trait BrainStore {
 
     /// Create or strengthen a typed edge between two entities. Increments
     /// `evidence_count` and refreshes `last_seen` when the edge already exists.
-    #[allow(dead_code)]
     fn upsert_edge(
         &self,
         src_entity_id: i64,
@@ -64,7 +58,6 @@ pub trait BrainStore {
     /// Resolve every mention to an entity (auto-stubbing unknowns), link each to
     /// the observation, and create `co_mentioned` edges between every distinct
     /// pair. Returns the resolved entities (deduplicated, in first-seen order).
-    #[allow(dead_code)]
     fn record_mentions(
         &self,
         observation_id: i64,
@@ -75,6 +68,7 @@ pub trait BrainStore {
 
     /// Return an entity's neighbors (connecting edge + entity on the other end),
     /// strongest edges first, capped at `limit`.
+    // TODO(fase-0b): remove once used in Task 6 (entity_neighbors MCP tool).
     #[allow(dead_code)]
     fn entity_neighbors(&self, entity_id: i64, limit: i64) -> DbResult<Vec<EntityNeighbor>>;
 }

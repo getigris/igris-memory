@@ -29,6 +29,10 @@ pub struct SaveArgs {
     pub tags: Option<Vec<String>>,
     #[schemars(description = "Session ID to associate this memory with")]
     pub session_id: Option<String>,
+    #[schemars(
+        description = "Entities this memory is about (names or aliases, e.g. ['Acme Corp', 'Jane Doe']). Unknown names are auto-created as stub entities; co-mentioned entities are linked automatically."
+    )]
+    pub mentions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
