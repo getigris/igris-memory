@@ -58,7 +58,7 @@ src/
 │   ├── mod.rs           # Database struct (rusqlite Connection), init, schema apply
 │   ├── observations.rs  # CRUD + topic-key upsert + SHA-256 dedup (15-min window)
 │   ├── entities.rs      # BrainStore impl: entity upsert/get + alias resolution + graph trait methods
-│   ├── graph.rs         # BrainStore graph helpers: row_to_edge + EDGE_COLS; Edge & EntityNeighbor models
+│   ├── graph.rs         # Inherent edge helpers used by entities.rs's BrainStore impl: row_to_edge, EDGE_COLS
 │   ├── search.rs        # FTS5 queries, recent context, stats aggregation
 │   ├── sessions.rs      # Session lifecycle
 │   ├── timeline.rs      # Chronological before/after queries
@@ -74,7 +74,7 @@ src/
 │   ├── mod.rs       # App state, Screen enum, refresh logic
 │   ├── handler.rs   # Keyboard event handling (vim-style + arrows)
 │   └── ui.rs        # ratatui rendering (tabs, table, detail, search, stats)
-├── models/          # Observation, Session, SearchResult, Timeline, Stats, ExportData, Entity
+├── models/          # Observation, Session, SearchResult, Timeline, Stats, ExportData, Entity, Edge, EntityNeighbor
 ├── errors.rs        # IgrisError with ErrorCode → HTTP status mapping
 ├── validation.rs    # Type/scope validation, non-empty checks
 ├── topic.rs         # suggest_topic_key: type → family, title → slug
