@@ -37,3 +37,26 @@ fn schema_v2_preserves_observations_table() {
         "existing observations table must survive migration"
     );
 }
+
+#[test]
+fn entity_model_serializes_kind_field() {
+    use crate::models::Entity;
+    let e = Entity {
+        id: 1,
+        kind: "person".to_string(),
+        canonical_name: "Jane Doe".to_string(),
+        slug: "jane-doe".to_string(),
+        tier: 3,
+        salience: 0.0,
+        compiled_truth: None,
+        compiled_at: None,
+        project: Some("igris-memory".to_string()),
+        scope: "project".to_string(),
+        created_at: "2026-06-30T00:00:00Z".to_string(),
+        updated_at: "2026-06-30T00:00:00Z".to_string(),
+        deleted_at: None,
+    };
+    let json = serde_json::to_string(&e).unwrap();
+    assert!(json.contains("\"kind\":\"person\""));
+    assert!(json.contains("\"canonical_name\":\"Jane Doe\""));
+}
