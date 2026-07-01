@@ -1,4 +1,5 @@
 use crate::db::Database;
+use crate::errors::ErrorCode;
 use crate::store::BrainStore;
 
 #[test]
@@ -66,6 +67,22 @@ fn get_entity_by_slug_scopes_by_project() {
             .is_err(),
         "slug lookup must be scoped to project"
     );
+}
+
+#[test]
+fn get_entity_returns_not_found_for_missing_id() {
+    let db = Database::open_in_memory().unwrap();
+    let err = db.get_entity(9999).unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound);
+}
+
+#[test]
+fn get_entity_by_slug_returns_not_found_for_missing_slug() {
+    let db = Database::open_in_memory().unwrap();
+    let err = db
+        .get_entity_by_slug("does-not-exist", None, "project")
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound);
 }
 
 #[test]

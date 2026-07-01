@@ -99,14 +99,18 @@ impl BrainStore for Database {
     }
 
     fn get_entity(&self, id: i64) -> DbResult<Entity> {
-        Ok(self.conn.query_row(
-            &format!(
-                "SELECT {} FROM entities WHERE id = ?1 AND deleted_at IS NULL",
-                Self::ENTITY_COLS
-            ),
-            params![id],
-            |row| Ok(Self::row_to_entity(row)),
-        )?)
+        let found = self
+            .conn
+            .query_row(
+                &format!(
+                    "SELECT {} FROM entities WHERE id = ?1 AND deleted_at IS NULL",
+                    Self::ENTITY_COLS
+                ),
+                params![id],
+                |row| Ok(Self::row_to_entity(row)),
+            )
+            .optional()?;
+        found.ok_or_else(|| IgrisError::not_found(format!("Entity {id} not found")))
     }
 
     fn get_entity_by_slug(
@@ -115,18 +119,22 @@ impl BrainStore for Database {
         project: Option<&str>,
         scope: &str,
     ) -> DbResult<Entity> {
-        Ok(self.conn.query_row(
-            &format!(
-                "SELECT {} FROM entities
-                 WHERE slug = ?1
-                   AND IFNULL(project, '') = IFNULL(?2, '')
-                   AND scope = ?3
-                   AND deleted_at IS NULL
-                 LIMIT 1",
-                Self::ENTITY_COLS
-            ),
-            params![slug, project, scope],
-            |row| Ok(Self::row_to_entity(row)),
-        )?)
+        let found = self
+            .conn
+            .query_row(
+                &format!(
+                    "SELECT {} FROM entities
+                     WHERE slug = ?1
+                       AND IFNULL(project, '') = IFNULL(?2, '')
+                       AND scope = ?3
+                       AND deleted_at IS NULL
+                     LIMIT 1",
+                    Self::ENTITY_COLS
+                ),
+                params![slug, project, scope],
+                |row| Ok(Self::row_to_entity(row)),
+            )
+            .optional()?;
+        found.ok_or_else(|| IgrisError::not_found(format!("Entity '{slug}' not found")))
     }
 }

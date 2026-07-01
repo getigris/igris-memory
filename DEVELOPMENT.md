@@ -52,7 +52,7 @@ The binary dispatches to one of four modes based on the CLI command:
 src/
 ├── main.rs          # Entry: CLI parse → logging → DB init → mode dispatch
 ├── cli.rs           # clap derive structs (Cli, Command, ServeArgs, SyncArgs)
-├── schema.rs        # SQL schema v1: tables, FTS5, triggers, indices, pragmas
+├── schema.rs        # SQL schema v1+v2: tables, FTS5, triggers, indices, pragmas (v2 = entity graph tables)
 ├── store.rs         # BrainStore trait — storage contract (entity/graph surface)
 ├── db/
 │   ├── mod.rs           # Database struct (rusqlite Connection), init, schema apply

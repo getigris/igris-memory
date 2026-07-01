@@ -6,6 +6,10 @@ use super::{Database, DbResult};
 
 impl Database {
     /// Export all observations and sessions as a portable JSON structure.
+    ///
+    /// NOTE: entities/entity_aliases/edges/mentions (schema v2, Fase 0a) are
+    /// intentionally NOT exported yet. This must be added in Fase 0b before
+    /// entities can be relied on for backup/sync.
     pub fn export_all(&self) -> DbResult<ExportData> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, type, title, content, project, scope,
