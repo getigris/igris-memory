@@ -645,3 +645,82 @@ fn v1_database_upgrades_to_v2_preserving_data() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn entity_timeline_returns_mentioning_observations_recent_first() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let o1 = db
+        .save_observation("first", "c1", "manual", None, "project", None, None, None)
+        .unwrap();
+    db.record_mentions(o1.id, &["Acme".to_string()], None, "project")
+        .unwrap();
+    let o2 = db
+        .save_observation("second", "c2", "manual", None, "project", None, None, None)
+        .unwrap();
+    db.record_mentions(o2.id, &["Acme".to_string()], None, "project")
+        .unwrap();
+
+    let acme = db.get_entity_by_slug("acme", None, "project").unwrap();
+    let tl = db.entity_timeline(acme.id, 10).unwrap();
+    assert_eq!(tl.len(), 2);
+    // most recent first
+    assert_eq!(tl[0].id, o2.id);
+    assert_eq!(tl[1].id, o1.id);
+}
+
+#[test]
+fn compile_entity_truth_is_deterministic_and_persists() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let o = db
+        .save_observation("kickoff", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    db.record_mentions(
+        o.id,
+        &["Acme".to_string(), "Bob".to_string()],
+        None,
+        "project",
+    )
+    .unwrap();
+    let acme = db.get_entity_by_slug("acme", None, "project").unwrap();
+
+    let truth1 = db.compile_entity_truth(acme.id).unwrap();
+    assert!(truth1.contains("# Acme"));
+    assert!(truth1.contains("Bob")); // co-mentioned neighbor listed
+    assert!(truth1.contains("kickoff")); // recent mention title listed
+
+    // Persisted into the row.
+    let reloaded = db.get_entity(acme.id).unwrap();
+    assert_eq!(reloaded.compiled_truth.as_deref(), Some(truth1.as_str()));
+    assert!(reloaded.compiled_at.is_some());
+
+    // Deterministic: same inputs → same output.
+    let truth2 = db.compile_entity_truth(acme.id).unwrap();
+    assert_eq!(truth1, truth2);
+}
+
+#[test]
+fn entity_brief_bundles_truth_neighbors_and_recent() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let o = db
+        .save_observation("meeting", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    db.record_mentions(
+        o.id,
+        &["Acme".to_string(), "Bob".to_string()],
+        None,
+        "project",
+    )
+    .unwrap();
+    let acme = db.get_entity_by_slug("acme", None, "project").unwrap();
+
+    let brief = db.entity_brief(acme.id).unwrap();
+    assert_eq!(brief.entity.id, acme.id);
+    assert!(brief.entity.compiled_truth.is_some()); // freshly compiled
+    assert_eq!(brief.neighbors.len(), 1);
+    assert_eq!(brief.neighbors[0].entity.canonical_name, "Bob");
+    assert_eq!(brief.recent.len(), 1);
+    assert_eq!(brief.recent[0].id, o.id);
+}

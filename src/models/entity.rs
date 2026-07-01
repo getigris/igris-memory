@@ -63,10 +63,8 @@ pub struct Mention {
 /// strongest connections, and its most recent mentions (with observation ids
 /// serving as citations).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct EntityBrief {
     pub entity: Entity,
     pub neighbors: Vec<EntityNeighbor>,
     pub recent: Vec<Observation>,
 }
-// TODO(fase-0c): remove once used in Task 3

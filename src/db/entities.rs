@@ -1,5 +1,5 @@
 use crate::errors::IgrisError;
-use crate::models::{Edge, Entity, EntityNeighbor};
+use crate::models::{Edge, Entity, EntityBrief, EntityNeighbor, Observation};
 use crate::store::BrainStore;
 use crate::utils::{entity_slug, normalize_alias, now_utc, strip_private_tags};
 use crate::validation;
@@ -41,6 +41,42 @@ impl Database {
             params![entity_id, normalized, source],
         )?;
         Ok(())
+    }
+
+    /// Deterministic Compiled Truth v0 template — pure, no LLM, no I/O.
+    fn format_compiled_truth(
+        entity: &Entity,
+        mention_count: i64,
+        neighbors: &[EntityNeighbor],
+        recent: &[Observation],
+    ) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("# {}\n\n", entity.canonical_name));
+        out.push_str(&format!("- **Kind:** {}\n", entity.kind));
+        out.push_str(&format!("- **Mentions:** {mention_count}\n"));
+        out.push_str(&format!("- **Connections:** {}\n\n", neighbors.len()));
+
+        out.push_str("## Connections\n");
+        if neighbors.is_empty() {
+            out.push_str("_None yet._\n");
+        } else {
+            for n in neighbors {
+                out.push_str(&format!(
+                    "- {} — {} ({}×)\n",
+                    n.entity.canonical_name, n.edge.edge_type, n.edge.evidence_count
+                ));
+            }
+        }
+
+        out.push_str("\n## Recent mentions\n");
+        if recent.is_empty() {
+            out.push_str("_None yet._\n");
+        } else {
+            for o in recent {
+                out.push_str(&format!("- {} — {} (#{})\n", o.created_at, o.title, o.id));
+            }
+        }
+        out
     }
 }
 
@@ -263,5 +299,57 @@ impl BrainStore for Database {
             }
         }
         Ok(neighbors)
+    }
+
+    fn entity_timeline(&self, entity_id: i64, limit: i64) -> DbResult<Vec<Observation>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
+                    o.topic_key, o.tags, o.revision_count, o.duplicate_count,
+                    o.created_at, o.updated_at, o.deleted_at
+             FROM observations o
+             JOIN mentions m ON m.observation_id = o.id
+             WHERE m.entity_id = ?1 AND o.deleted_at IS NULL
+             ORDER BY datetime(o.created_at) DESC, o.id DESC
+             LIMIT ?2",
+        )?;
+        let rows: Vec<Observation> = stmt
+            .query_map(params![entity_id, limit], |row| {
+                Ok(Self::row_to_observation(row))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    fn compile_entity_truth(&self, entity_id: i64) -> DbResult<String> {
+        let entity = self.get_entity(entity_id)?;
+        let mention_count: i64 = self.conn.query_row(
+            "SELECT count(*) FROM mentions WHERE entity_id = ?1",
+            params![entity_id],
+            |r| r.get(0),
+        )?;
+        let neighbors = self.entity_neighbors(entity_id, 10)?;
+        let recent = self.entity_timeline(entity_id, 5)?;
+        let truth = Self::format_compiled_truth(&entity, mention_count, &neighbors, &recent);
+
+        let now = now_utc();
+        self.conn.execute(
+            "UPDATE entities SET compiled_truth = ?1, compiled_at = ?2 WHERE id = ?3",
+            params![truth, now, entity_id],
+        )?;
+        Ok(truth)
+    }
+
+    fn entity_brief(&self, entity_id: i64) -> DbResult<EntityBrief> {
+        // Recompile so the returned entity carries a fresh Compiled Truth.
+        self.compile_entity_truth(entity_id)?;
+        let entity = self.get_entity(entity_id)?;
+        let neighbors = self.entity_neighbors(entity_id, 10)?;
+        let recent = self.entity_timeline(entity_id, 10)?;
+        Ok(EntityBrief {
+            entity,
+            neighbors,
+            recent,
+        })
     }
 }

@@ -6,7 +6,7 @@
 //! than a rewrite. Entity/graph operations are added here as they land per phase.
 
 use crate::db::DbResult;
-use crate::models::{Edge, Entity, EntityNeighbor};
+use crate::models::{Edge, Entity, EntityBrief, EntityNeighbor, Observation};
 
 /// Storage contract for the entity/graph layer.
 pub trait BrainStore {
@@ -69,4 +69,22 @@ pub trait BrainStore {
     /// Return an entity's neighbors (connecting edge + entity on the other end),
     /// strongest edges first, capped at `limit`.
     fn entity_neighbors(&self, entity_id: i64, limit: i64) -> DbResult<Vec<EntityNeighbor>>;
+
+    /// The entity's Timeline: observations that mention it, most recent first.
+    // TODO(fase-0c): remove once used in Task 4
+    #[allow(dead_code)]
+    fn entity_timeline(&self, entity_id: i64, limit: i64) -> DbResult<Vec<Observation>>;
+
+    /// Regenerate the entity's Compiled Truth from a deterministic template
+    /// (mention count, top connections, recent mentions), persist it into
+    /// `compiled_truth`/`compiled_at`, and return it. No LLM.
+    // TODO(fase-0c): remove once used in Task 4
+    #[allow(dead_code)]
+    fn compile_entity_truth(&self, entity_id: i64) -> DbResult<String>;
+
+    /// Assemble a one-call brief: recompiles the truth (so `entity.compiled_truth`
+    /// is fresh), then bundles the entity, its top neighbors, and recent timeline.
+    // TODO(fase-0c): remove once used in Task 4
+    #[allow(dead_code)]
+    fn entity_brief(&self, entity_id: i64) -> DbResult<EntityBrief>;
 }
