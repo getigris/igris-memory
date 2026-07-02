@@ -187,6 +187,44 @@ async fn delete_observation_soft() {
     assert_eq!(json["deleted"], true);
 }
 
+#[tokio::test]
+async fn save_observation_with_mentions_creates_entities_and_edge() {
+    use crate::store::BrainStore;
+
+    let state = test_state();
+    let app = router(state.clone());
+
+    let (status, json) = response_json(
+        app,
+        json_request(
+            "POST",
+            "/observations",
+            Some(serde_json::json!({
+                "title": "Deal with Acme",
+                "content": "Talked to Bob about the Acme contract",
+                "type": "decision",
+                "project": "sales",
+                "mentions": ["Acme", "Bob"]
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["id"].as_i64().is_some());
+
+    let db = state.db.lock().unwrap();
+    let entities = db.list_entities(None, Some("sales"), None, 20).unwrap();
+    assert_eq!(entities.len(), 2);
+
+    let acme = entities
+        .iter()
+        .find(|e| e.canonical_name == "Acme")
+        .expect("Acme entity should have been created");
+    let neighbors = db.entity_neighbors(acme.id, 10).unwrap();
+    assert_eq!(neighbors.len(), 1);
+    assert_eq!(neighbors[0].edge.edge_type, "co_mentioned");
+}
+
 // ─── Search & Context ───────────────────────────────────────────
 
 #[tokio::test]

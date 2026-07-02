@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 use crate::errors::IgrisError;
 use crate::models::*;
+use crate::store::BrainStore;
 use crate::topic;
 
 use super::AppState;
@@ -61,6 +62,8 @@ struct SaveBody {
     topic_key: Option<String>,
     tags: Option<Vec<String>>,
     session_id: Option<String>,
+    #[serde(default)]
+    mentions: Option<Vec<String>>,
 }
 
 fn default_type() -> String {
@@ -85,6 +88,12 @@ async fn save_observation(
         body.tags.as_deref(),
         body.session_id.as_deref(),
     )?;
+    if let Some(mentions) = body.mentions.as_deref()
+        && !mentions.is_empty()
+        && let Err(e) = db.record_mentions(obs.id, mentions, body.project.as_deref(), &body.scope)
+    {
+        tracing::warn!(route = "POST /observations", error = %e, "mention wiring failed");
+    }
     Ok(Json(obs))
 }
 
