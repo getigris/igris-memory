@@ -65,7 +65,7 @@ src/
 │   ├── export.rs        # Full export/import with hash-based dedup
 │   └── purge.rs         # Hard-delete soft-deleted entries + VACUUM
 ├── server/
-│   ├── mod.rs       # IgrisServer with #[tool_router] — 25 MCP tools
+│   ├── mod.rs       # IgrisServer with #[tool_router] — 27 MCP tools
 │   └── args.rs      # Tool parameter schemas (schemars JsonSchema)
 ├── http/
 │   ├── mod.rs       # Axum server setup, AppState = Arc<Mutex<Database>>

@@ -488,6 +488,12 @@ impl BrainStore for Database {
         let _target = self.get_entity(target_id)?;
         let now = now_utc();
 
+        // Atomic: the copy/repoint/soft-delete steps below must not be
+        // observable as separate mutations (see upsert_entity for the same
+        // pattern). unchecked_transaction is used because BrainStore methods
+        // take &self.
+        let tx = self.conn.unchecked_transaction()?;
+
         // Aliases -> target (idempotent via the unique (alias_normalized, entity_id) index).
         self.conn.execute(
             "INSERT OR IGNORE INTO entity_aliases (entity_id, alias_normalized, source)
@@ -557,6 +563,7 @@ impl BrainStore for Database {
             } else {
                 (other, target_id)
             };
+            // evidence_count is not summed on an existing-edge collision (best-effort v0)
             self.conn.execute(
                 "INSERT OR IGNORE INTO edges
                      (src_entity_id, dst_entity_id, edge_type, evidence_count, confidence,
@@ -586,6 +593,7 @@ impl BrainStore for Database {
             params![now, source_id],
         )?;
 
+        tx.commit()?;
         self.get_entity(target_id)
     }
 }

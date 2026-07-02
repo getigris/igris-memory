@@ -107,6 +107,8 @@ Structure the summary as:
 | `igris_entity_list` | Browse entities, most recent first. | `kind?`, `project?`, `scope?`, `limit?` |
 | `igris_entity_delete` | Soft-delete an entity by id. | `id` (required) |
 | `igris_entity_unlink` | Remove a typed relation between two entities. | `src_id`, `dst_id`, `relation` (required) |
+| `igris_entity_update` | Update an entity's kind/tier/salience or add aliases, by id. | `id` (required), `kind?`, `tier?`, `salience?`, `add_aliases?` |
+| `igris_entity_merge` | Fold a duplicate entity (source) into another (target). | `source_id`, `target_id` (required) |
 
 #### Saving & Updating
 
