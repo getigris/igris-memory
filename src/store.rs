@@ -81,4 +81,25 @@ pub trait BrainStore {
     /// Assemble a one-call brief: recompiles the truth (so `entity.compiled_truth`
     /// is fresh), then bundles the entity, its top neighbors, and recent timeline.
     fn entity_brief(&self, entity_id: i64) -> DbResult<EntityBrief>;
+
+    /// Find entities whose name/alias matches `query` (substring, normalized),
+    /// optionally filtered by kind/project/scope. Strongest (salience, recency) first.
+    fn search_entities(
+        &self,
+        query: &str,
+        kind: Option<&str>,
+        project: Option<&str>,
+        scope: Option<&str>,
+        limit: i64,
+    ) -> DbResult<Vec<Entity>>;
+
+    /// List entities, most recently updated first, optionally filtered by
+    /// kind/project/scope. Use to browse the graph.
+    fn list_entities(
+        &self,
+        kind: Option<&str>,
+        project: Option<&str>,
+        scope: Option<&str>,
+        limit: i64,
+    ) -> DbResult<Vec<Entity>>;
 }

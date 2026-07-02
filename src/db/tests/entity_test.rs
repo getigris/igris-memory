@@ -790,3 +790,64 @@ fn timeline_and_brief_args_defaults() {
     assert!(b.id.is_none());
     assert_eq!(b.scope, "project");
 }
+
+#[test]
+fn search_entities_matches_by_alias_and_filters_kind() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    db.upsert_entity(
+        "company",
+        "Acme Corp",
+        &["ACME".to_string()],
+        None,
+        "project",
+    )
+    .unwrap();
+    db.upsert_entity("person", "Jane Acme", &[], None, "project")
+        .unwrap();
+
+    // "acme" matches both (Acme Corp via alias, Jane Acme via canonical alias)
+    let all = db.search_entities("acme", None, None, None, 20).unwrap();
+    assert_eq!(all.len(), 2);
+    // kind filter narrows to the company
+    let companies = db
+        .search_entities("acme", Some("company"), None, None, 20)
+        .unwrap();
+    assert_eq!(companies.len(), 1);
+    assert_eq!(companies[0].canonical_name, "Acme Corp");
+    // no match
+    assert!(
+        db.search_entities("zzz", None, None, None, 20)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn list_entities_returns_recent_and_filters_kind() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    db.upsert_entity("company", "Acme", &[], None, "project")
+        .unwrap();
+    db.upsert_entity("person", "Bob", &[], None, "project")
+        .unwrap();
+    db.upsert_entity("person", "Carol", &[], None, "project")
+        .unwrap();
+
+    let all = db.list_entities(None, None, None, 20).unwrap();
+    assert_eq!(all.len(), 3);
+    let people = db.list_entities(Some("person"), None, None, 20).unwrap();
+    assert_eq!(people.len(), 2);
+    assert!(people.iter().all(|e| e.kind == "person"));
+}
+
+#[test]
+fn entity_search_and_list_args_defaults() {
+    let s: crate::server::args::EntitySearchArgs =
+        serde_json::from_str(r#"{"query":"acme"}"#).unwrap();
+    assert_eq!(s.query, "acme");
+    assert!(s.limit.is_none());
+    let l: crate::server::args::EntityListArgs = serde_json::from_str(r#"{}"#).unwrap();
+    assert!(l.kind.is_none());
+    assert!(l.limit.is_none());
+}

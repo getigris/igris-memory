@@ -229,6 +229,34 @@ pub struct BriefArgs {
     pub scope: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntitySearchArgs {
+    #[schemars(description = "Name or alias to search for (substring match, case-insensitive).")]
+    pub query: String,
+    #[schemars(
+        description = "Filter by kind: person, company, project, concept, place, product, other."
+    )]
+    pub kind: Option<String>,
+    #[schemars(description = "Filter by project (omit for all).")]
+    pub project: Option<String>,
+    #[schemars(description = "Filter by scope: 'project' or 'personal' (omit for all).")]
+    pub scope: Option<String>,
+    #[schemars(description = "Max results (default 20).")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityListArgs {
+    #[schemars(description = "Filter by kind (omit for all kinds).")]
+    pub kind: Option<String>,
+    #[schemars(description = "Filter by project (omit for all).")]
+    pub project: Option<String>,
+    #[schemars(description = "Filter by scope: 'project' or 'personal' (omit for all).")]
+    pub scope: Option<String>,
+    #[schemars(description = "Max results, most recently updated first (default 20).")]
+    pub limit: Option<i64>,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

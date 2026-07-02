@@ -352,4 +352,63 @@ impl BrainStore for Database {
             recent,
         })
     }
+
+    fn search_entities(
+        &self,
+        query: &str,
+        kind: Option<&str>,
+        project: Option<&str>,
+        scope: Option<&str>,
+        limit: i64,
+    ) -> DbResult<Vec<Entity>> {
+        let like = format!("%{}%", crate::utils::normalize_alias(query));
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT e.id, e.kind, e.canonical_name, e.slug, e.tier, e.salience,
+                    e.compiled_truth, e.compiled_at, e.project, e.scope,
+                    e.created_at, e.updated_at, e.deleted_at
+             FROM entities e
+             JOIN entity_aliases a ON a.entity_id = e.id
+             WHERE a.alias_normalized LIKE ?1
+               AND e.deleted_at IS NULL
+               AND (?2 IS NULL OR e.kind = ?2)
+               AND (?3 IS NULL OR IFNULL(e.project, '') = IFNULL(?3, ''))
+               AND (?4 IS NULL OR e.scope = ?4)
+             ORDER BY e.salience DESC, datetime(e.updated_at) DESC, e.id DESC
+             LIMIT ?5",
+        )?;
+        let rows: Vec<Entity> = stmt
+            .query_map(params![like, kind, project, scope, limit], |row| {
+                Ok(Self::row_to_entity(row))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    fn list_entities(
+        &self,
+        kind: Option<&str>,
+        project: Option<&str>,
+        scope: Option<&str>,
+        limit: i64,
+    ) -> DbResult<Vec<Entity>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, kind, canonical_name, slug, tier, salience, compiled_truth,
+                    compiled_at, project, scope, created_at, updated_at, deleted_at
+             FROM entities
+             WHERE deleted_at IS NULL
+               AND (?1 IS NULL OR kind = ?1)
+               AND (?2 IS NULL OR IFNULL(project, '') = IFNULL(?2, ''))
+               AND (?3 IS NULL OR scope = ?3)
+             ORDER BY datetime(updated_at) DESC, id DESC
+             LIMIT ?4",
+        )?;
+        let rows: Vec<Entity> = stmt
+            .query_map(params![kind, project, scope, limit], |row| {
+                Ok(Self::row_to_entity(row))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
 }

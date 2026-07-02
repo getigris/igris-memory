@@ -456,6 +456,65 @@ impl IgrisServer {
     }
 
     #[tool(
+        name = "igris_entity_search",
+        description = "Find entities by name or alias (substring, case-insensitive), optionally filtered by kind. Use to discover an entity's id/slug before igris_brief, igris_entity_neighbors, etc."
+    )]
+    fn igris_entity_search(&self, Parameters(args): Parameters<EntitySearchArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.search_entities(
+            &args.query,
+            args.kind.as_deref(),
+            args.project.as_deref(),
+            args.scope.as_deref(),
+            args.limit.unwrap_or(20),
+        ) {
+            Ok(entities) => to_json(&entities),
+            Err(e) => {
+                tracing::warn!(tool = "igris_entity_search", error = %e, "db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(
+            tool = "igris_entity_search",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
+        result
+    }
+
+    #[tool(
+        name = "igris_entity_list",
+        description = "Browse entities, most recently updated first, optionally filtered by kind/project/scope. Use at session start or to survey what the brain knows."
+    )]
+    fn igris_entity_list(&self, Parameters(args): Parameters<EntityListArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.list_entities(
+            args.kind.as_deref(),
+            args.project.as_deref(),
+            args.scope.as_deref(),
+            args.limit.unwrap_or(20),
+        ) {
+            Ok(entities) => to_json(&entities),
+            Err(e) => {
+                tracing::warn!(tool = "igris_entity_list", error = %e, "db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(
+            tool = "igris_entity_list",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
+        result
+    }
+
+    #[tool(
         name = "igris_export",
         description = "Export all memories and sessions as JSON. Use for backup or migration between machines."
     )]
