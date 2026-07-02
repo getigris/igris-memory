@@ -122,4 +122,9 @@ pub trait BrainStore {
     /// Soft-delete edges of type `relation` between two entities (either
     /// direction). Returns how many edges were removed.
     fn unlink_entities(&self, src_id: i64, dst_id: i64, relation: &str) -> DbResult<i64>;
+
+    /// Fold a duplicate entity (`source_id`) into another (`target_id`):
+    /// moves `source`'s aliases, mentions, and edges onto `target`, then
+    /// soft-deletes `source`. `target` keeps its identity (id/slug).
+    fn merge_entities(&self, source_id: i64, target_id: i64) -> DbResult<Entity>;
 }

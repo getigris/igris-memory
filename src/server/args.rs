@@ -291,6 +291,18 @@ pub struct EntityUnlinkArgs {
     pub relation: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityMergeArgs {
+    #[schemars(
+        description = "Duplicate entity id to fold into target. Its aliases, mentions, and edges move to target; it is then soft-deleted."
+    )]
+    pub source_id: i64,
+    #[schemars(
+        description = "Entity id that survives the merge and keeps its identity (id/slug)."
+    )]
+    pub target_id: i64,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

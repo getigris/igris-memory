@@ -597,6 +597,30 @@ impl IgrisServer {
     }
 
     #[tool(
+        name = "igris_entity_merge",
+        description = "Fold a duplicate entity (source) into another (target): moves source's aliases, mentions, and edges to target, then soft-deletes source. Target keeps its identity (id/slug)."
+    )]
+    fn igris_entity_merge(&self, Parameters(args): Parameters<EntityMergeArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.merge_entities(args.source_id, args.target_id) {
+            Ok(entity) => to_json(&entity),
+            Err(e) => {
+                tracing::warn!(tool = "igris_entity_merge", error = %e, "validation/db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(
+            tool = "igris_entity_merge",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
+        result
+    }
+
+    #[tool(
         name = "igris_export",
         description = "Export all memories and sessions as JSON. Use for backup or migration between machines."
     )]

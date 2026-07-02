@@ -972,3 +972,194 @@ fn stats_counts_entities_and_edges() {
     assert_eq!(s.total_entities, 2);
     assert_eq!(s.total_edges, 1);
 }
+
+#[test]
+fn merge_entities_moves_aliases_mentions_and_edges_then_hides_source() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let target = db
+        .upsert_entity("company", "Acme Corp", &[], None, "project")
+        .unwrap();
+    let source = db
+        .upsert_entity("company", "Acme Inc", &[], None, "project")
+        .unwrap();
+    let carol = db
+        .upsert_entity("person", "Carol", &[], None, "project")
+        .unwrap();
+
+    db.update_entity(source.id, None, None, None, &["Acme Legacy".to_string()])
+        .unwrap();
+
+    let o = db
+        .save_observation(
+            "kickoff", "notes", "manual", None, "project", None, None, None,
+        )
+        .unwrap();
+    db.add_mention(o.id, source.id).unwrap();
+    db.upsert_edge(source.id, carol.id, "co_mentioned").unwrap();
+
+    let merged = db.merge_entities(source.id, target.id).unwrap();
+    assert_eq!(merged.id, target.id);
+    assert_eq!(merged.canonical_name, "Acme Corp");
+
+    // Source's own name and its alias now resolve to target.
+    let by_source_name = db
+        .resolve_or_stub_entity("Acme Inc", None, "project")
+        .unwrap();
+    assert_eq!(by_source_name.id, target.id);
+    let by_alias = db
+        .resolve_or_stub_entity("Acme Legacy", None, "project")
+        .unwrap();
+    assert_eq!(by_alias.id, target.id);
+
+    // Target's timeline now includes source's observation.
+    let timeline = db.entity_timeline(target.id, 10).unwrap();
+    assert!(timeline.iter().any(|obs| obs.id == o.id));
+
+    // Target now has Carol as a neighbor (edge moved, not dropped).
+    let neighbors = db.entity_neighbors(target.id, 10).unwrap();
+    assert!(neighbors.iter().any(|n| n.entity.id == carol.id));
+
+    // Source is hidden everywhere.
+    assert!(db.get_entity(source.id).is_err());
+    let listed = db.list_entities(None, None, None, 100).unwrap();
+    assert!(!listed.iter().any(|e| e.id == source.id));
+}
+
+#[test]
+fn merge_entities_dedupes_mention_shared_with_target() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let target = db
+        .upsert_entity("company", "Acme Corp", &[], None, "project")
+        .unwrap();
+    let source = db
+        .upsert_entity("company", "Acme Inc", &[], None, "project")
+        .unwrap();
+    let o = db
+        .save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    // Same observation mentions BOTH source and target already.
+    db.add_mention(o.id, source.id).unwrap();
+    db.add_mention(o.id, target.id).unwrap();
+
+    // Must not panic/error with a UNIQUE constraint violation.
+    db.merge_entities(source.id, target.id).unwrap();
+
+    let count: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM mentions WHERE observation_id = ?1 AND entity_id = ?2",
+            rusqlite::params![o.id, target.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        count, 1,
+        "exactly one mention row for (observation, target)"
+    );
+}
+
+#[test]
+fn merge_entities_drops_would_be_self_loop_edge() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let target = db
+        .upsert_entity("company", "Acme Corp", &[], None, "project")
+        .unwrap();
+    let source = db
+        .upsert_entity("company", "Acme Inc", &[], None, "project")
+        .unwrap();
+    // Source and target are directly connected before the merge.
+    db.upsert_edge(source.id, target.id, "co_mentioned")
+        .unwrap();
+
+    db.merge_entities(source.id, target.id).unwrap();
+
+    let self_loops: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM edges
+             WHERE src_entity_id = ?1 AND dst_entity_id = ?1 AND deleted_at IS NULL",
+            rusqlite::params![target.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(self_loops, 0, "must not create a target-target self-loop");
+
+    let neighbors = db.entity_neighbors(target.id, 10).unwrap();
+    assert!(
+        !neighbors.iter().any(|n| n.entity.id == target.id),
+        "target must never appear as its own neighbor"
+    );
+}
+
+#[test]
+fn merge_entities_preserves_direction_of_directed_edges() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let target = db
+        .upsert_entity("company", "Acme Corp", &[], None, "project")
+        .unwrap();
+    let source = db
+        .upsert_entity("company", "Acme Inc", &[], None, "project")
+        .unwrap();
+    let dana = db
+        .upsert_entity("person", "Dana", &[], None, "project")
+        .unwrap();
+
+    // source -> dana ("employs"), directed.
+    db.upsert_edge(source.id, dana.id, "employs").unwrap();
+
+    db.merge_entities(source.id, target.id).unwrap();
+
+    let forward: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM edges
+             WHERE src_entity_id = ?1 AND dst_entity_id = ?2 AND edge_type = 'employs'
+               AND deleted_at IS NULL",
+            rusqlite::params![target.id, dana.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(forward, 1, "direction target->dana must be preserved");
+
+    let reversed: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM edges
+             WHERE src_entity_id = ?1 AND dst_entity_id = ?2 AND edge_type = 'employs'
+               AND deleted_at IS NULL",
+            rusqlite::params![dana.id, target.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(reversed, 0, "must not flip direction");
+}
+
+#[test]
+fn merge_entities_into_self_is_rejected() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let e = db
+        .upsert_entity("company", "Acme Corp", &[], None, "project")
+        .unwrap();
+    let err = db.merge_entities(e.id, e.id).unwrap_err();
+    assert_eq!(err.code, ErrorCode::ValidationError);
+}
+
+#[test]
+fn merge_entities_with_missing_ids_returns_not_found() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let e = db
+        .upsert_entity("company", "Acme Corp", &[], None, "project")
+        .unwrap();
+
+    let err_missing_source = db.merge_entities(9999, e.id).unwrap_err();
+    assert_eq!(err_missing_source.code, ErrorCode::NotFound);
+
+    let err_missing_target = db.merge_entities(e.id, 9999).unwrap_err();
+    assert_eq!(err_missing_target.code, ErrorCode::NotFound);
+}

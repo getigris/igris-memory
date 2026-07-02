@@ -472,4 +472,113 @@ impl BrainStore for Database {
         )?;
         Ok(affected as i64)
     }
+
+    fn merge_entities(&self, source_id: i64, target_id: i64) -> DbResult<Entity> {
+        if source_id == target_id {
+            return Err(IgrisError::validation("cannot merge an entity into itself"));
+        }
+        let source_entity = self.get_entity(source_id)?;
+        let _target = self.get_entity(target_id)?;
+        let now = now_utc();
+
+        // Aliases -> target (idempotent via the unique (alias_normalized, entity_id) index).
+        self.conn.execute(
+            "INSERT OR IGNORE INTO entity_aliases (entity_id, alias_normalized, source)
+             SELECT ?1, alias_normalized, 'merged' FROM entity_aliases WHERE entity_id = ?2",
+            params![target_id, source_id],
+        )?;
+        self.add_alias(target_id, &source_entity.canonical_name, "merged")?;
+
+        // Mentions -> target, deduped by the (observation_id, entity_id) unique index.
+        self.conn.execute(
+            "INSERT OR IGNORE INTO mentions (observation_id, entity_id)
+             SELECT observation_id, ?1 FROM mentions WHERE entity_id = ?2",
+            params![target_id, source_id],
+        )?;
+        self.conn.execute(
+            "DELETE FROM mentions WHERE entity_id = ?1",
+            params![source_id],
+        )?;
+
+        // Edges -> target: repoint each edge where source is an endpoint, then
+        // soft-delete all of source's original edges.
+        struct SourceEdge {
+            src: i64,
+            dst: i64,
+            edge_type: String,
+            evidence_count: i64,
+            confidence: f64,
+            first_seen: String,
+            last_seen: String,
+        }
+        let source_edges: Vec<SourceEdge> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT src_entity_id, dst_entity_id, edge_type, evidence_count, confidence,
+                        first_seen, last_seen
+                 FROM edges
+                 WHERE (src_entity_id = ?1 OR dst_entity_id = ?1) AND deleted_at IS NULL",
+            )?;
+            stmt.query_map(params![source_id], |row| {
+                Ok(SourceEdge {
+                    src: row.get(0)?,
+                    dst: row.get(1)?,
+                    edge_type: row.get(2)?,
+                    evidence_count: row.get(3)?,
+                    confidence: row.get(4)?,
+                    first_seen: row.get(5)?,
+                    last_seen: row.get(6)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect()
+        };
+
+        for edge in &source_edges {
+            let other = if edge.src == source_id {
+                edge.dst
+            } else {
+                edge.src
+            };
+            if other == target_id {
+                // Would become a target-target self-loop; drop it.
+                continue;
+            }
+            let (a, b) = if edge.edge_type == "co_mentioned" {
+                (target_id.min(other), target_id.max(other))
+            } else if edge.src == source_id {
+                (target_id, other)
+            } else {
+                (other, target_id)
+            };
+            self.conn.execute(
+                "INSERT OR IGNORE INTO edges
+                     (src_entity_id, dst_entity_id, edge_type, evidence_count, confidence,
+                      first_seen, last_seen)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    a,
+                    b,
+                    edge.edge_type,
+                    edge.evidence_count,
+                    edge.confidence,
+                    edge.first_seen,
+                    edge.last_seen
+                ],
+            )?;
+        }
+
+        self.conn.execute(
+            "UPDATE edges SET deleted_at = ?1
+             WHERE (src_entity_id = ?2 OR dst_entity_id = ?2) AND deleted_at IS NULL",
+            params![now, source_id],
+        )?;
+
+        // Soft-delete the source entity.
+        self.conn.execute(
+            "UPDATE entities SET deleted_at = ?1 WHERE id = ?2",
+            params![now, source_id],
+        )?;
+
+        self.get_entity(target_id)
+    }
 }
