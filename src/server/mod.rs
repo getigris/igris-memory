@@ -748,7 +748,12 @@ impl ServerHandler for IgrisServer {
                  ## Search vs Context\n\
                  - igris_search: find specific memories by keyword\n\
                  - igris_context: load recent memories chronologically (use at session start)\n\
-                 - igris_timeline: see what happened before/after a specific memory",
+                 - igris_timeline: see what happened before/after a specific memory\n\n\
+                 ## Entities (the knowledge graph)\n\
+                 - Declare the who/what your memories are about with igris_entity_upsert (people, companies, projects, concepts).\n\
+                 - When you save, pass mentions: [\"Name\", ...] to igris_save — unknown names auto-create stub entities, and entities mentioned together get linked automatically.\n\
+                 - Discover entities with igris_entity_search (by name/alias) or igris_entity_list (browse); you don't need to know ids in advance.\n\
+                 - Load everything about one entity with igris_brief; see its history with igris_entity_timeline and its connections with igris_entity_neighbors.",
             )
     }
 }
