@@ -103,6 +103,10 @@ Structure the summary as:
 | `igris_entity_neighbors` | List an entity's connected entities, strongest first. | `entity_id` (required), `limit?` |
 | `igris_entity_timeline` | List observations mentioning an entity, most recent first. | `entity_id` (required), `limit?` |
 | `igris_brief` | One-call summary of an entity: Compiled Truth + top connections + recent mentions. | `id?` or `slug?`, `project?`, `scope?` |
+| `igris_entity_search` | Find entities by name/alias (optionally filter by kind). Discover ids/slugs. | `query` (required), `kind?`, `project?`, `scope?`, `limit?` |
+| `igris_entity_list` | Browse entities, most recent first. | `kind?`, `project?`, `scope?`, `limit?` |
+| `igris_entity_delete` | Soft-delete an entity by id. | `id` (required) |
+| `igris_entity_unlink` | Remove a typed relation between two entities. | `src_id`, `dst_id`, `relation` (required) |
 
 #### Saving & Updating
 
