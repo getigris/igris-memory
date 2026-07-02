@@ -257,6 +257,22 @@ pub struct EntityListArgs {
     pub limit: Option<i64>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityDeleteArgs {
+    #[schemars(description = "Entity id to soft-delete.")]
+    pub id: i64,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityUnlinkArgs {
+    #[schemars(description = "One endpoint entity id.")]
+    pub src_id: i64,
+    #[schemars(description = "Other endpoint entity id.")]
+    pub dst_id: i64,
+    #[schemars(description = "Relation type to remove, e.g. 'co_mentioned', 'works_at'.")]
+    pub relation: String,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

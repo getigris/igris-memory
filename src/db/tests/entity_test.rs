@@ -851,3 +851,46 @@ fn entity_search_and_list_args_defaults() {
     assert!(l.kind.is_none());
     assert!(l.limit.is_none());
 }
+
+#[test]
+fn delete_entity_soft_deletes_and_hides_it() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let e = db
+        .upsert_entity("person", "Zoe", &[], None, "project")
+        .unwrap();
+    assert!(db.delete_entity(e.id).unwrap());
+    // hidden from get and list
+    assert!(db.get_entity(e.id).is_err());
+    assert!(db.list_entities(None, None, None, 20).unwrap().is_empty());
+    // deleting again returns false
+    assert!(!db.delete_entity(e.id).unwrap());
+}
+
+#[test]
+fn unlink_entities_removes_edge_either_direction() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let o = db
+        .save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    let resolved = db
+        .record_mentions(
+            o.id,
+            &["Acme".to_string(), "Bob".to_string()],
+            None,
+            "project",
+        )
+        .unwrap();
+    let acme = resolved
+        .iter()
+        .find(|e| e.canonical_name == "Acme")
+        .unwrap();
+    let bob = resolved.iter().find(|e| e.canonical_name == "Bob").unwrap();
+    assert_eq!(db.entity_neighbors(acme.id, 10).unwrap().len(), 1);
+
+    // unlink using the reversed direction still matches the stored min<max edge
+    let removed = db.unlink_entities(bob.id, acme.id, "co_mentioned").unwrap();
+    assert_eq!(removed, 1);
+    assert_eq!(db.entity_neighbors(acme.id, 10).unwrap().len(), 0);
+}

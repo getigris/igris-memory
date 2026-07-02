@@ -515,6 +515,58 @@ impl IgrisServer {
     }
 
     #[tool(
+        name = "igris_entity_delete",
+        description = "Soft-delete an entity by id. It is hidden from search/list/get/neighbors but data is retained."
+    )]
+    fn igris_entity_delete(&self, Parameters(args): Parameters<EntityDeleteArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.delete_entity(args.id) {
+            Ok(true) => r#"{"deleted": true}"#.to_string(),
+            Ok(false) => err_json(IgrisError::not_found(format!(
+                "Entity {} not found or already deleted",
+                args.id
+            ))),
+            Err(e) => {
+                tracing::warn!(tool = "igris_entity_delete", error = %e, "db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(
+            tool = "igris_entity_delete",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
+        result
+    }
+
+    #[tool(
+        name = "igris_entity_unlink",
+        description = "Remove a typed relation between two entities (either direction). Returns how many edges were removed."
+    )]
+    fn igris_entity_unlink(&self, Parameters(args): Parameters<EntityUnlinkArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.unlink_entities(args.src_id, args.dst_id, &args.relation) {
+            Ok(n) => serde_json::json!({ "removed": n }).to_string(),
+            Err(e) => {
+                tracing::warn!(tool = "igris_entity_unlink", error = %e, "db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(
+            tool = "igris_entity_unlink",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
+        result
+    }
+
+    #[tool(
         name = "igris_export",
         description = "Export all memories and sessions as JSON. Use for backup or migration between machines."
     )]

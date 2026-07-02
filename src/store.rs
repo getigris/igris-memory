@@ -102,4 +102,12 @@ pub trait BrainStore {
         scope: Option<&str>,
         limit: i64,
     ) -> DbResult<Vec<Entity>>;
+
+    /// Soft-delete an entity (sets `deleted_at`); returns false if not found or
+    /// already deleted. The entity is hidden from get/search/list/neighbors.
+    fn delete_entity(&self, id: i64) -> DbResult<bool>;
+
+    /// Soft-delete edges of type `relation` between two entities (either
+    /// direction). Returns how many edges were removed.
+    fn unlink_entities(&self, src_id: i64, dst_id: i64, relation: &str) -> DbResult<i64>;
 }

@@ -411,4 +411,23 @@ impl BrainStore for Database {
             .collect();
         Ok(rows)
     }
+
+    fn delete_entity(&self, id: i64) -> DbResult<bool> {
+        let affected = self.conn.execute(
+            "UPDATE entities SET deleted_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            params![now_utc(), id],
+        )?;
+        Ok(affected > 0)
+    }
+
+    fn unlink_entities(&self, src_id: i64, dst_id: i64, relation: &str) -> DbResult<i64> {
+        let affected = self.conn.execute(
+            "UPDATE edges SET deleted_at = ?1
+             WHERE edge_type = ?2 AND deleted_at IS NULL
+               AND ((src_entity_id = ?3 AND dst_entity_id = ?4)
+                 OR (src_entity_id = ?4 AND dst_entity_id = ?3))",
+            params![now_utc(), relation, src_id, dst_id],
+        )?;
+        Ok(affected as i64)
+    }
 }
