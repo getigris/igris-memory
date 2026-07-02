@@ -74,7 +74,7 @@ async fn save_and_get_observation() {
     let app = router(state);
     let (status, json) = response_json(
         app,
-        Request::get(&format!("/observations/{id}"))
+        Request::get(format!("/observations/{id}"))
             .body(Body::empty())
             .unwrap(),
     )
@@ -177,7 +177,7 @@ async fn delete_observation_soft() {
     let app = router(state);
     let (status, json) = response_json(
         app,
-        Request::delete(&format!("/observations/{id}"))
+        Request::delete(format!("/observations/{id}"))
             .header("content-type", "application/json")
             .body(Body::empty())
             .unwrap(),
@@ -252,7 +252,7 @@ async fn search_returns_results() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(json.as_array().unwrap().len() > 0);
+    assert!(!json.as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -424,7 +424,7 @@ async fn purge_old_deleted() {
 
     response_json(
         router(state.clone()),
-        Request::delete(&format!("/observations/{id}"))
+        Request::delete(format!("/observations/{id}"))
             .header("content-type", "application/json")
             .body(Body::empty())
             .unwrap(),

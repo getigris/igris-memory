@@ -129,6 +129,8 @@ SQLite with WAL mode, `busy_timeout=5000`, `synchronous=NORMAL`. Optional SQLCip
 
 `person`, `company`, `project`, `concept`, `place`, `product`, `other`
 
+Note: an entity's slug is derived from its name only, so it is unique per project+scope *regardless of kind* — a person and a company sharing the same name resolve to one entity, and `igris_entity_upsert` is idempotent by name accordingly.
+
 ### Valid Scopes
 
 `project`, `personal`

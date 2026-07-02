@@ -94,6 +94,12 @@ impl BrainStore for Database {
         let slug = entity_slug(&clean_name);
         let now = now_utc();
 
+        // Atomic: SELECT-then-INSERT/UPDATE plus alias registration must not
+        // be observable as separate steps. unchecked_transaction is used
+        // (rather than transaction, which needs &mut self) because BrainStore
+        // methods take &self.
+        let tx = self.conn.unchecked_transaction()?;
+
         let existing: Option<i64> = self
             .conn
             .query_row(
@@ -132,6 +138,7 @@ impl BrainStore for Database {
             self.add_alias(entity_id, alias, "provided")?;
         }
 
+        tx.commit()?;
         self.get_entity(entity_id)
     }
 
