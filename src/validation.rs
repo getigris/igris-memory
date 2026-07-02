@@ -102,6 +102,19 @@ pub fn validate_update_has_fields(
     Ok(())
 }
 
+/// Validate that an entity update has at least one field to change.
+pub fn validate_entity_update_has_fields(
+    kind: Option<&str>,
+    tier: Option<i32>,
+    salience: Option<f64>,
+    add_aliases: &[String],
+) -> Result<(), String> {
+    if kind.is_none() && tier.is_none() && salience.is_none() && add_aliases.is_empty() {
+        return Err("update requires at least one field to change".to_string());
+    }
+    Ok(())
+}
+
 /// Validate save observation inputs.
 pub fn validate_save(
     title: &str,

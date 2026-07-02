@@ -351,6 +351,36 @@ impl IgrisServer {
     }
 
     #[tool(
+        name = "igris_entity_update",
+        description = "Partially update an entity's mutable fields by id — kind, tier, salience, and/or additional aliases. The slug (stable identity) never changes. Requires at least one field to change. Complements igris_entity_upsert, which is keyed by name."
+    )]
+    fn igris_entity_update(&self, Parameters(args): Parameters<EntityUpdateArgs>) -> String {
+        let start = Instant::now();
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let result = match db.update_entity(
+            args.id,
+            args.kind.as_deref(),
+            args.tier,
+            args.salience,
+            args.add_aliases.as_deref().unwrap_or(&[]),
+        ) {
+            Ok(entity) => to_json(&entity),
+            Err(e) => {
+                tracing::warn!(tool = "igris_entity_update", error = %e, "validation/db error");
+                err_json(e)
+            }
+        };
+        tracing::info!(
+            tool = "igris_entity_update",
+            duration_ms = start.elapsed().as_millis() as u64
+        );
+        result
+    }
+
+    #[tool(
         name = "igris_entity_link",
         description = "Create or strengthen a typed relation between two entities (by id), e.g. 'works_at', 'founded'. Idempotent: repeating the same link increments its evidence."
     )]

@@ -187,6 +187,24 @@ pub struct EntityGetArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityUpdateArgs {
+    #[schemars(description = "Entity id to update.")]
+    pub id: i64,
+    #[schemars(
+        description = "New kind: person, company, project, concept, place, product, or other (only if changing)."
+    )]
+    pub kind: Option<String>,
+    #[schemars(description = "New tier (only if changing).")]
+    pub tier: Option<i32>,
+    #[schemars(description = "New salience score (only if changing).")]
+    pub salience: Option<f64>,
+    #[schemars(
+        description = "Additional aliases/alternate names to register for this entity (does not replace existing aliases)."
+    )]
+    pub add_aliases: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct EntityLinkArgs {
     #[schemars(description = "Source entity id (from igris_entity_upsert/get).")]
     pub src_id: i64,

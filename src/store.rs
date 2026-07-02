@@ -33,6 +33,18 @@ pub trait BrainStore {
         scope: &str,
     ) -> DbResult<Entity>;
 
+    /// Partially update an entity's mutable fields by id. `slug` is the stable
+    /// identity and is never changed here. Requires at least one of
+    /// kind/tier/salience to be `Some`, or `add_aliases` to be non-empty.
+    fn update_entity(
+        &self,
+        id: i64,
+        kind: Option<&str>,
+        tier: Option<i32>,
+        salience: Option<f64>,
+        add_aliases: &[String],
+    ) -> DbResult<Entity>;
+
     /// Link an observation to an entity (idempotent).
     fn add_mention(&self, observation_id: i64, entity_id: i64) -> DbResult<()>;
 

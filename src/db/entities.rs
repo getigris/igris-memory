@@ -175,6 +175,48 @@ impl BrainStore for Database {
         found.ok_or_else(|| IgrisError::not_found(format!("Entity '{slug}' not found")))
     }
 
+    fn update_entity(
+        &self,
+        id: i64,
+        kind: Option<&str>,
+        tier: Option<i32>,
+        salience: Option<f64>,
+        add_aliases: &[String],
+    ) -> DbResult<Entity> {
+        validation::validate_entity_update_has_fields(kind, tier, salience, add_aliases)
+            .map_err(IgrisError::validation)?;
+        self.get_entity(id)?;
+
+        if let Some(k) = kind {
+            validation::validate_entity_kind(k).map_err(IgrisError::validation)?;
+        }
+        let now = now_utc();
+
+        if let Some(k) = kind {
+            self.conn.execute(
+                "UPDATE entities SET kind = ?1, updated_at = ?2 WHERE id = ?3",
+                params![k, now, id],
+            )?;
+        }
+        if let Some(t) = tier {
+            self.conn.execute(
+                "UPDATE entities SET tier = ?1, updated_at = ?2 WHERE id = ?3",
+                params![t, now, id],
+            )?;
+        }
+        if let Some(s) = salience {
+            self.conn.execute(
+                "UPDATE entities SET salience = ?1, updated_at = ?2 WHERE id = ?3",
+                params![s, now, id],
+            )?;
+        }
+        for alias in add_aliases {
+            self.add_alias(id, alias, "provided")?;
+        }
+
+        self.get_entity(id)
+    }
+
     fn add_mention(&self, observation_id: i64, entity_id: i64) -> DbResult<()> {
         self.conn.execute(
             "INSERT OR IGNORE INTO mentions (observation_id, entity_id) VALUES (?1, ?2)",

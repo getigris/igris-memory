@@ -896,6 +896,65 @@ fn unlink_entities_removes_edge_either_direction() {
 }
 
 #[test]
+fn update_entity_sets_kind_tier_salience_and_adds_alias() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let e = db
+        .upsert_entity("other", "Acme", &[], None, "project")
+        .unwrap();
+    let original_slug = e.slug.clone();
+
+    let updated = db
+        .update_entity(
+            e.id,
+            Some("company"),
+            Some(1),
+            Some(0.75),
+            &["Acme Corp".to_string()],
+        )
+        .unwrap();
+
+    assert_eq!(updated.id, e.id);
+    assert_eq!(updated.kind, "company");
+    assert_eq!(updated.tier, 1);
+    assert_eq!(updated.salience, 0.75);
+    assert_eq!(updated.slug, original_slug, "slug must not change");
+
+    // Reload independently to make sure the changes were persisted, not just returned.
+    let reloaded = db.get_entity(e.id).unwrap();
+    assert_eq!(reloaded.kind, "company");
+    assert_eq!(reloaded.tier, 1);
+    assert_eq!(reloaded.salience, 0.75);
+
+    // The added alias resolves back to the same entity.
+    let resolved = db
+        .resolve_or_stub_entity("Acme Corp", None, "project")
+        .unwrap();
+    assert_eq!(resolved.id, e.id);
+}
+
+#[test]
+fn update_entity_requires_at_least_one_field() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let e = db
+        .upsert_entity("other", "Zed", &[], None, "project")
+        .unwrap();
+    let err = db.update_entity(e.id, None, None, None, &[]).unwrap_err();
+    assert_eq!(err.code, ErrorCode::ValidationError);
+}
+
+#[test]
+fn update_entity_returns_not_found_for_missing_id() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let err = db
+        .update_entity(9999, Some("company"), None, None, &[])
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound);
+}
+
+#[test]
 fn stats_counts_entities_and_edges() {
     use crate::store::BrainStore;
     let db = Database::open_in_memory().unwrap();
