@@ -173,6 +173,17 @@ impl Database {
             |r| r.get(0),
         )?;
 
+        let total_entities: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM entities WHERE deleted_at IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        let total_edges: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM edges WHERE deleted_at IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+
         let mut by_type = HashMap::new();
         let mut stmt = self.conn.prepare(
             "SELECT type, COUNT(*) FROM observations WHERE deleted_at IS NULL GROUP BY type",
@@ -201,6 +212,8 @@ impl Database {
             total_observations,
             total_sessions,
             active_sessions,
+            total_entities,
+            total_edges,
             by_type,
             by_project,
         })

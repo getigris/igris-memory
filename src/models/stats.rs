@@ -13,6 +13,8 @@ pub struct Stats {
     pub total_observations: i64,
     pub total_sessions: i64,
     pub active_sessions: i64,
+    pub total_entities: i64,
+    pub total_edges: i64,
     pub by_type: HashMap<String, i64>,
     pub by_project: HashMap<String, i64>,
 }

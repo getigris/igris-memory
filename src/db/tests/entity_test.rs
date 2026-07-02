@@ -894,3 +894,22 @@ fn unlink_entities_removes_edge_either_direction() {
     assert_eq!(removed, 1);
     assert_eq!(db.entity_neighbors(acme.id, 10).unwrap().len(), 0);
 }
+
+#[test]
+fn stats_counts_entities_and_edges() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    let o = db
+        .save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    db.record_mentions(
+        o.id,
+        &["Acme".to_string(), "Bob".to_string()],
+        None,
+        "project",
+    )
+    .unwrap();
+    let s = db.stats().unwrap();
+    assert_eq!(s.total_entities, 2);
+    assert_eq!(s.total_edges, 1);
+}
