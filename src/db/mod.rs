@@ -33,6 +33,7 @@ impl Database {
     /// Open (or create) the database at the given path and run migrations.
     /// If `key` is provided, the database is encrypted with SQLCipher.
     pub fn open(path: &Path, key: Option<&str>) -> SqlResult<Self> {
+        crate::embed::register_sqlite_vec();
         let conn = Connection::open(path)?;
         if let Some(k) = key {
             conn.pragma_update(None, "key", k)?;
@@ -45,6 +46,7 @@ impl Database {
     /// Open an in-memory database (for tests).
     #[cfg(test)]
     pub fn open_in_memory() -> SqlResult<Self> {
+        crate::embed::register_sqlite_vec();
         let conn = Connection::open_in_memory()?;
         let db = Self { conn };
         db.init()?;
@@ -126,3 +128,7 @@ mod entity_tests;
 #[cfg(test)]
 #[path = "tests/embed_test.rs"]
 mod embed_tests;
+
+#[cfg(test)]
+#[path = "tests/vec_test.rs"]
+mod vec_tests;

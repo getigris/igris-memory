@@ -5,6 +5,26 @@
 //! semantically meaningful (it hashes tokens into buckets). A real provider
 //! (Ollama) arrives in Fase 1b.
 
+/// Register the statically-linked sqlite-vec extension for all future
+/// connections (idempotent). Safe to call even when the vector index is
+/// unused — it only makes the `vec_*` SQL functions available.
+pub fn register_sqlite_vec() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| unsafe {
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut rusqlite::ffi::sqlite3,
+                *mut *mut std::os::raw::c_char,
+                *const rusqlite::ffi::sqlite3_api_routines,
+            ) -> std::os::raw::c_int,
+        >(
+            sqlite_vec::sqlite3_vec_init as *const ()
+        )));
+    });
+}
+
 /// A text→vector embedder. Implementations are provided by the app layer;
 /// `Database` never holds one.
 pub trait Embedder: Send + Sync {
