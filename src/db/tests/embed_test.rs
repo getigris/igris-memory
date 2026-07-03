@@ -231,3 +231,42 @@ fn hybrid_search_fuses_vector_hits() {
     // fused rank score is populated (higher = better) and sorted descending
     assert!(hybrid[0].rank >= hybrid[hybrid.len() - 1].rank);
 }
+
+#[test]
+fn server_with_embedder_embeds_on_save_and_search_hybrid() {
+    use crate::embed::HashEmbedder;
+    use crate::server::IgrisServer;
+    use crate::server::args::{SaveArgs, SearchArgs};
+    use rmcp::handler::server::wrapper::Parameters;
+    use std::sync::Arc;
+
+    let db = Database::open_in_memory().unwrap();
+    let server = IgrisServer::with_embedder(db, Some(Arc::new(HashEmbedder::new(64))));
+
+    // save → an embedding row is created for this observation under model "hash-v1"
+    let save_json = server.igris_save(Parameters(SaveArgs {
+        title: "t".into(),
+        content: "alpha beta gamma".into(),
+        observation_type: "manual".into(),
+        project: None,
+        scope: "project".into(),
+        topic_key: None,
+        tags: None,
+        session_id: None,
+        mentions: None,
+    }));
+    assert!(!save_json.contains("\"error\""), "save failed: {save_json}");
+
+    // search returns a non-error result (hybrid path exercised)
+    let search_json = server.igris_search(Parameters(SearchArgs {
+        query: "alpha".into(),
+        observation_type: None,
+        project: None,
+        limit: None,
+    }));
+    assert!(
+        !search_json.contains("\"error\""),
+        "search failed: {search_json}"
+    );
+    assert!(search_json.contains("alpha")); // the saved content surfaces
+}

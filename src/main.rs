@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
 
     let db_key = cli.resolve_db_key();
     let db = Database::open(&db_path, db_key.as_deref())?;
+    let embedder = cli.build_embedder();
 
     match cli.command {
         Some(Command::Serve { port, host }) => {
@@ -75,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         None => {
-            let server = IgrisServer::new(db);
+            let server = IgrisServer::with_embedder(db, embedder);
             let service = server.serve(stdio()).await.inspect_err(|e| {
                 tracing::error!("MCP serve error: {:?}", e);
             })?;

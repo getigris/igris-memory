@@ -3,6 +3,7 @@ pub mod args;
 use args::*;
 
 use crate::db::Database;
+use crate::embed::Embedder;
 use crate::errors::IgrisError;
 use crate::store::BrainStore;
 use crate::topic;
@@ -32,17 +33,45 @@ fn err_json(e: IgrisError) -> String {
 
 // ─── MCP Server ─────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct IgrisServer {
     db: Arc<Mutex<Database>>,
+    embedder: Option<Arc<dyn Embedder>>,
     tool_router: ToolRouter<Self>,
+}
+
+impl std::fmt::Debug for IgrisServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IgrisServer")
+            .field("db", &self.db)
+            .field("embedder", &self.embedder.as_ref().map(|e| e.model()))
+            .field("tool_router", &self.tool_router)
+            .finish()
+    }
 }
 
 #[tool_router]
 impl IgrisServer {
+    /// Convenience constructor for callers that never configure an embedder.
+    /// Kept as a stable, minimal entry point alongside `with_embedder` — the
+    /// `igmem` binary itself always goes through `with_embedder` with a
+    /// CLI-resolved `Option<Arc<dyn Embedder>>` (which may itself be `None`).
+    #[allow(dead_code)]
     pub fn new(db: Database) -> Self {
+        Self::with_embedder(db, None)
+    }
+
+    pub fn with_embedder(db: Database, embedder: Option<Arc<dyn Embedder>>) -> Self {
+        if let Some(e) = embedder.as_ref() {
+            tracing::info!(
+                model = e.model(),
+                dimensions = e.dimensions(),
+                "embedder configured"
+            );
+        }
         Self {
             db: Arc::new(Mutex::new(db)),
+            embedder,
             tool_router: Self::tool_router(),
         }
     }
@@ -51,7 +80,7 @@ impl IgrisServer {
         name = "igris_save",
         description = "Save a memory. Call this proactively when the user makes a decision, discovers something, fixes a bug, creates a plan, or asks you to remember something. Use topic_key for evolving knowledge — same key updates in place instead of creating duplicates. Wrap secrets in <private>...</private> to auto-redact."
     )]
-    fn igris_save(&self, Parameters(args): Parameters<SaveArgs>) -> String {
+    pub(crate) fn igris_save(&self, Parameters(args): Parameters<SaveArgs>) -> String {
         let start = Instant::now();
         let db = match lock_db(&self.db) {
             Ok(db) => db,
@@ -75,6 +104,20 @@ impl IgrisServer {
                 {
                     tracing::warn!(tool = "igris_save", error = %e, "mention wiring failed");
                 }
+                if let Some(embedder) = self.embedder.as_ref() {
+                    match embedder.embed(&args.content) {
+                        Ok(vec) => {
+                            if let Err(e) =
+                                db.upsert_embedding("observation", obs.id, embedder.model(), &vec)
+                            {
+                                tracing::warn!(tool = "igris_save", error = %e, "embedding store failed");
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(tool = "igris_save", error = %e, "embedding failed");
+                        }
+                    }
+                }
                 to_json(&obs)
             }
             Err(e) => {
@@ -93,14 +136,21 @@ impl IgrisServer {
         name = "igris_search",
         description = "Search memories by keyword or natural language. Returns ranked results with snippets. Use this to find specific past decisions, patterns, or context before making recommendations."
     )]
-    fn igris_search(&self, Parameters(args): Parameters<SearchArgs>) -> String {
+    pub(crate) fn igris_search(&self, Parameters(args): Parameters<SearchArgs>) -> String {
         let start = Instant::now();
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
-        let result = match db.search(
+        let query_embedding = self
+            .embedder
+            .as_ref()
+            .and_then(|e| e.embed(&args.query).ok());
+        let model = self.embedder.as_ref().map(|e| e.model()).unwrap_or("");
+        let result = match db.hybrid_search(
             &args.query,
+            query_embedding.as_deref(),
+            model,
             args.observation_type.as_deref(),
             args.project.as_deref(),
             args.limit,

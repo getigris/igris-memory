@@ -8,7 +8,6 @@ use super::{Database, DbResult};
 
 impl Database {
     /// Store (or replace) an embedding for an object under a given model.
-    #[allow(dead_code)] // TODO(fase-1b): remove once wired into server/CLI
     pub fn upsert_embedding(
         &self,
         object_type: &str,
@@ -29,7 +28,6 @@ impl Database {
     }
 
     /// Brute-force cosine search over stored observation embeddings for `model`.
-    #[allow(dead_code)] // TODO(fase-1b): remove once wired into server/CLI
     pub fn vector_search(
         &self,
         query_vec: &[f32],
@@ -75,7 +73,6 @@ impl Database {
     /// Hybrid retrieval: FTS5 fused with vector similarity via Reciprocal Rank
     /// Fusion. With `query_embedding = None`, returns pure FTS (identical to
     /// `search`). The returned `SearchResult.rank` carries the fused RRF score.
-    #[allow(dead_code)] // TODO(fase-1b): remove once wired into server/CLI
     pub fn hybrid_search(
         &self,
         query: &str,
@@ -85,6 +82,7 @@ impl Database {
         project: Option<&str>,
         limit: Option<i64>,
     ) -> DbResult<Vec<SearchResult>> {
+        crate::validation::validate_limit(limit)?;
         let limit = limit.unwrap_or(super::DEFAULT_LIMIT).min(50);
         let candidate_k = 50;
 

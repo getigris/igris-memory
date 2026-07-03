@@ -120,7 +120,6 @@ impl Cli {
 
     /// Resolve the configured embedder: CLI flag > env var > none.
     /// Returns None (keyword-only) unless an embedder is explicitly configured.
-    #[allow(dead_code)] // TODO(fase-1b): remove once wired into the server (Task 3)
     pub fn build_embedder(&self) -> Option<std::sync::Arc<dyn crate::embed::Embedder>> {
         use crate::embed::{HashEmbedder, OllamaEmbedder};
         use std::sync::Arc;

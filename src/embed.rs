@@ -7,7 +7,6 @@
 
 /// A text→vector embedder. Implementations are provided by the app layer;
 /// `Database` never holds one.
-#[allow(dead_code)] // TODO(fase-1b): remove once wired into the server (Task 3)
 pub trait Embedder: Send + Sync {
     fn embed(&self, text: &str) -> Result<Vec<f32>, String>;
     fn dimensions(&self) -> usize;
@@ -114,7 +113,6 @@ pub(crate) fn parse_embedding_response(body: &str) -> Result<Vec<f32>, String> {
 }
 
 /// Serialize a vector to a little-endian f32 BLOB.
-#[allow(dead_code)] // Used by upsert_embedding (test-only until fase-1b)
 pub fn vec_to_blob(v: &[f32]) -> Vec<u8> {
     let mut b = Vec::with_capacity(v.len() * 4);
     for x in v {
@@ -124,7 +122,6 @@ pub fn vec_to_blob(v: &[f32]) -> Vec<u8> {
 }
 
 /// Parse a little-endian f32 BLOB back to a vector.
-#[allow(dead_code)] // TODO(fase-1a): remove once used in Task 3/4
 pub fn blob_to_vec(b: &[u8]) -> Vec<f32> {
     b.chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
@@ -132,7 +129,6 @@ pub fn blob_to_vec(b: &[u8]) -> Vec<f32> {
 }
 
 /// Cosine similarity in [-1, 1]; 0.0 for length mismatch or a zero vector.
-#[allow(dead_code)] // TODO(fase-1a): remove once used in Task 3/4
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
