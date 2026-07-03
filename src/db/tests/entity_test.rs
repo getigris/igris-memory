@@ -112,7 +112,7 @@ fn schema_v2_creates_entity_tables() {
         .conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
 }
 
 #[test]
@@ -623,7 +623,7 @@ fn v1_database_upgrades_to_v2_preserving_data() {
             .conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
         for table in ["entities", "entity_aliases", "edges", "mentions"] {
             let n: i64 = db
                 .conn

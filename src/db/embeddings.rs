@@ -24,6 +24,11 @@ impl Database {
              DO UPDATE SET dim = ?4, vector = ?5, created_at = ?6",
             params![object_type, object_id, model, dim, blob, now_utc()],
         )?;
+        if self.vector_index {
+            // The vec0 index is an accelerator, not the source of truth — a
+            // failure here must not fail the durable write.
+            let _ = self.vec_index_upsert(object_id, model, vector);
+        }
         Ok(())
     }
 

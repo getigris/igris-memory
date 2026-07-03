@@ -1,5 +1,5 @@
 /// Current schema version. Increment when adding migrations.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Initial database schema — tables, FTS5, triggers, and indices.
 pub const SCHEMA_V1: &str = r#"
@@ -150,6 +150,15 @@ CREATE TABLE IF NOT EXISTS embeddings (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_obj
     ON embeddings(object_type, object_id, model);
 CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
+"#;
+
+/// Schema v4 — vector-index metadata (the vec0 table itself is created lazily).
+pub const SCHEMA_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS vec_index_meta (
+    id    INTEGER PRIMARY KEY CHECK (id = 1),
+    dim   INTEGER NOT NULL,
+    model TEXT NOT NULL
+);
 "#;
 
 /// Pragmas applied on every connection open.

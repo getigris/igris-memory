@@ -394,7 +394,7 @@ fn export_includes_all_data() {
     let data = db.export_all().unwrap();
     assert_eq!(data.observations.len(), 2);
     assert_eq!(data.sessions.len(), 1);
-    assert_eq!(data.version, 3);
+    assert_eq!(data.version, 4);
     assert!(!data.exported_at.is_empty());
 }
 

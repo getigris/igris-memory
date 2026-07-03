@@ -36,3 +36,37 @@ fn sqlite_vec_is_registered_and_knn_works() {
         .unwrap();
     assert_eq!(top, 1); // nearest to [0.9,0.1,0] is [1,0,0]
 }
+
+#[test]
+fn upsert_embedding_populates_vec_index_when_enabled() {
+    let db = Database::open_in_memory_vec().unwrap();
+    let o = db
+        .save_observation(
+            "t",
+            "alpha beta",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    db.upsert_embedding("observation", o.id, "hash-v1", &[0.1, 0.2, 0.3])
+        .unwrap();
+    // the vec0 table now has a row for this observation
+    let n: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM embeddings_vec", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1);
+    // meta records dim + model
+    let (dim, model): (i64, String) = db
+        .conn
+        .query_row("SELECT dim, model FROM vec_index_meta LIMIT 1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(dim, 3);
+    assert_eq!(model, "hash-v1");
+}

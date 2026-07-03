@@ -7,10 +7,11 @@ mod purge;
 mod search;
 mod sessions;
 mod timeline;
+mod vecindex;
 
 use crate::errors::IgrisError;
 use crate::models::Observation;
-use crate::schema::{PRAGMAS, SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_VERSION};
+use crate::schema::{PRAGMAS, SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_VERSION};
 use rusqlite::{Connection, Result as SqlResult};
 use std::path::Path;
 
@@ -27,8 +28,6 @@ const DEFAULT_LIMIT: i64 = 20;
 #[derive(Debug)]
 pub struct Database {
     pub(crate) conn: Connection,
-    // Not yet consumed by any query path; the ANN backend selection lands in a later task.
-    #[allow(dead_code)]
     pub(crate) vector_index: bool,
 }
 
@@ -67,6 +66,19 @@ impl Database {
         Ok(db)
     }
 
+    /// Open an in-memory database with the sqlite-vec index enabled (for tests).
+    #[cfg(test)]
+    pub fn open_in_memory_vec() -> SqlResult<Self> {
+        crate::embed::register_sqlite_vec();
+        let conn = Connection::open_in_memory()?;
+        let db = Self {
+            conn,
+            vector_index: true,
+        };
+        db.init()?;
+        Ok(db)
+    }
+
     fn init(&self) -> SqlResult<()> {
         self.conn.execute_batch(PRAGMAS)?;
         let version: u32 = self
@@ -80,6 +92,9 @@ impl Database {
         }
         if version < 3 {
             self.conn.execute_batch(SCHEMA_V3)?;
+        }
+        if version < 4 {
+            self.conn.execute_batch(SCHEMA_V4)?;
         }
         if version < SCHEMA_VERSION {
             self.conn
