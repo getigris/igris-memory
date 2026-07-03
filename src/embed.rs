@@ -60,7 +60,7 @@ impl Embedder for HashEmbedder {
 }
 
 /// Serialize a vector to a little-endian f32 BLOB.
-#[allow(dead_code)] // TODO(fase-1a): remove once used in Task 3/4
+#[allow(dead_code)] // Used by upsert_embedding (test-only until fase-1b)
 pub fn vec_to_blob(v: &[f32]) -> Vec<u8> {
     let mut b = Vec::with_capacity(v.len() * 4);
     for x in v {

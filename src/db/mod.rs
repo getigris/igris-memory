@@ -1,3 +1,4 @@
+mod embeddings;
 mod entities;
 mod export;
 mod graph;
