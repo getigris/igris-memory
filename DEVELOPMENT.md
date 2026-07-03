@@ -52,16 +52,17 @@ The binary dispatches to one of four modes based on the CLI command:
 src/
 ├── main.rs          # Entry: CLI parse → logging → DB init → mode dispatch
 ├── cli.rs           # clap derive structs (Cli, Command, ServeArgs, SyncArgs)
-├── schema.rs        # SQL schema v1+v2+v3: tables, FTS5, triggers, indices, pragmas (v2 = entity graph, v3 = embeddings)
+├── schema.rs        # SQL schema v1+v2+v3+v4: tables, FTS5, triggers, indices, pragmas (v2 = entity graph, v3 = embeddings, v4 = vec0 index)
 ├── store.rs         # BrainStore trait — storage contract (entity/graph surface)
-├── embed.rs         # Embedder trait, HashEmbedder, vector utils
+├── embed.rs         # Embedder trait, HashEmbedder, vector utils, register_sqlite_vec (statically-linked)
 ├── db/
 │   ├── mod.rs           # Database struct (rusqlite Connection), init, schema apply
 │   ├── observations.rs  # CRUD + topic-key upsert + SHA-256 dedup (15-min window)
 │   ├── entities.rs      # BrainStore impl: entity upsert/get + alias resolution + graph trait methods
 │   ├── graph.rs         # Inherent edge helpers used by entities.rs's BrainStore impl: row_to_edge, EDGE_COLS
 │   ├── search.rs        # FTS5 queries, recent context, stats aggregation
-│   ├── embeddings.rs    # embedding storage + brute-force vector_search + hybrid_search (RRF)
+│   ├── embeddings.rs    # embedding storage + brute-force vector_search + hybrid_search (RRF), VectorIndex seam
+│   ├── vecindex.rs      # VectorIndex trait, brute-force default, vec0 ANN path with post-filter, fallback
 │   ├── sessions.rs      # Session lifecycle
 │   ├── timeline.rs      # Chronological before/after queries
 │   ├── export.rs        # Full export/import with hash-based dedup
@@ -94,11 +95,59 @@ src/
 - **FTS5 sync**: INSERT/UPDATE/DELETE triggers keep `observations_fts` in sync with `observations`
 - **Logging to stderr**: stdout is reserved for MCP stdio transport; all tracing goes to stderr
 
-### Hybrid Retrieval (Fase 1a)
+### Vector Search (Fase 1c)
 
-Embeddings are stored per (object, model) as f32 BLOBs in the `embeddings` table. The `hybrid_search` function fuses full-text (FTS5) and semantic (cosine similarity) results via Reciprocal Rank Fusion (RRF). The engine is LLM-free; the query embedding is supplied by the caller (server wiring and Ollama provider integration land in Fase 1b). Note: embeddings are a derived cache and are not yet exported.
+#### Overview
 
-### Semantic Search Configuration
+Vector search uses the `VectorIndex` seam to abstract the retrieval backend:
+
+- **Default (brute-force)**: Exhaustive cosine similarity over all embeddings. Exact results, no approximation.
+- **Optional (sqlite-vec ANN)**: Approximate nearest neighbors via statically-linked sqlite-vec with post-filtering to ensure exactness. Faster for large memory sets.
+- **Fallback**: If vec0 index is unavailable or corrupted, automatically falls back to brute-force.
+
+#### Configuration
+
+Enable the optional sqlite-vec ANN backend via CLI flag or environment variable:
+
+**CLI flags:**
+```bash
+igmem --vector-index vec          # Use sqlite-vec (ANN with post-filter)
+igmem --vector-index brute        # Use brute-force (default, explicit)
+```
+
+**Environment variables:**
+```bash
+IGRIS_VECTOR_INDEX=vec            # Use sqlite-vec
+IGRIS_VECTOR_INDEX=brute          # Use brute-force
+```
+
+#### Schema (v4)
+
+Schema v4 extends v3 with:
+
+- `vec_index_meta`: tracks ANN index state (method, dimension, timestamp, schema version)
+- `embeddings_vec`: a lazily-created vec0 virtual table (statically-linked sqlite-vec) that maintains the ANN index over embeddings
+
+When `--vector-index vec` is enabled, `igmem embed --rebuild-index` triggers index creation/rebuild. Embeddings and the vec index are **derived caches** (not exported via `igris_export`).
+
+#### sqlite-vec Integration
+
+sqlite-vec is statically linked via `register_sqlite_vec` (in `embed.rs`), making it part of the single-binary distribution. Encryption (SQLCipher) is compatible and preserves the vec0 virtual table.
+
+#### Retrieval Design
+
+`vector_search` (called by `hybrid_search`):
+1. If `--vector-index vec` is enabled and vec0 exists: run ANN query with over-fetch (kNN + safety margin), post-filter with exact cosine recomputed from the durable embedding blob
+2. If fallback needed (no vec0 or error): brute-force cosine similarity over all embeddings
+3. Similarity is always exact cosine, independent of vec0's internal distance metric
+
+### Embeddings & Semantic Search Configuration
+
+Embeddings are stored per (observation, model) as f32 BLOBs in the `embeddings` table. The `hybrid_search` function fuses full-text (FTS5) and semantic (cosine similarity) results via Reciprocal Rank Fusion (RRF). The engine is LLM-free; the query embedding is supplied by the caller.
+
+**Embeddings are a derived cache**: they are not exported via `igris_export` and are rebuilt as needed (via `igmem embed --backfill`).
+
+#### Enable Embeddings via Ollama
 
 To enable semantic search via an external embedder (e.g., Ollama), configure one of the following:
 
@@ -117,6 +166,11 @@ IGRIS_EMBED_MODEL=nomic-embed-text
 **Backfill existing memories:**
 ```bash
 igmem embed --backfill
+```
+
+To enable the optional sqlite-vec ANN backend, add `--vector-index vec --rebuild-index`:
+```bash
+igmem --embedder ollama --vector-index vec embed --backfill --rebuild-index
 ```
 
 Once configured, `igris_save` automatically embeds new observations and `igris_search` returns hybrid results (semantic + keyword via RRF).

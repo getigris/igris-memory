@@ -269,6 +269,18 @@ IGRIS_LOG=debug igmem serve --port 7437
 
 By default, `igris_search` uses keyword-only full-text search. To enable semantic (vector-based) search combined with keywords via Reciprocal Rank Fusion:
 
+### Vector Search Backend
+
+Vector search uses an **exact brute-force backend by default**. For large memory sets, enable the optional **sqlite-vec ANN (approximate nearest neighbor) backend** via `--vector-index vec`:
+
+```bash
+igmem --embedder ollama --vector-index vec embed --backfill --rebuild-index
+```
+
+This flag enables statically-linked sqlite-vec for approximate nearest-neighbor search with post-filtering to ensure exactness. Omit `--vector-index` or set it to `brute` to use the default brute-force backend.
+
+### Setup
+
 **1. Install Ollama**
 
 Download and install [Ollama](https://ollama.ai), then pull the embedding model:
@@ -277,7 +289,7 @@ Download and install [Ollama](https://ollama.ai), then pull the embedding model:
 ollama pull nomic-embed-text
 ```
 
-**2. Run Igris Memory with an embedder**
+**2. Configure embedder and vector index**
 
 ```bash
 # Via CLI flag
