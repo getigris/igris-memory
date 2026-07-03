@@ -78,3 +78,56 @@ fn upsert_embedding_roundtrips_and_replaces() {
         .unwrap();
     assert_eq!(count, 1);
 }
+
+#[test]
+fn vector_search_ranks_by_cosine() {
+    use crate::embed::{Embedder, HashEmbedder};
+    let db = Database::open_in_memory().unwrap();
+    let e = HashEmbedder::new(64);
+
+    let near = db
+        .save_observation(
+            "near",
+            "alpha beta gamma",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    let far = db
+        .save_observation(
+            "far",
+            "delta epsilon zeta",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    for o in [&near, &far] {
+        db.upsert_embedding(
+            "observation",
+            o.id,
+            e.model(),
+            &e.embed(&o.content).unwrap(),
+        )
+        .unwrap();
+    }
+
+    // query shares tokens with `near`
+    let qe = e.embed("alpha beta").unwrap();
+    let hits = db.vector_search(&qe, e.model(), None, None, 10).unwrap();
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0].0.id, near.id); // highest cosine first
+    assert!(hits[0].1 >= hits[1].1);
+    // soft-deleted observations are excluded
+    db.delete_observation(near.id).unwrap();
+    let hits2 = db.vector_search(&qe, e.model(), None, None, 10).unwrap();
+    assert_eq!(hits2.len(), 1);
+    assert_eq!(hits2[0].0.id, far.id);
+}
