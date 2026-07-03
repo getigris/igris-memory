@@ -1,5 +1,5 @@
 /// Current schema version. Increment when adding migrations.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Initial database schema — tables, FTS5, triggers, and indices.
 pub const SCHEMA_V1: &str = r#"
@@ -134,6 +134,22 @@ CREATE TABLE IF NOT EXISTS mentions (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mention_unique
     ON mentions(observation_id, entity_id);
 CREATE INDEX IF NOT EXISTS idx_mention_entity ON mentions(entity_id);
+"#;
+
+/// Schema v3 — vector embeddings for hybrid retrieval (additive).
+pub const SCHEMA_V3: &str = r#"
+CREATE TABLE IF NOT EXISTS embeddings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    object_type TEXT NOT NULL,
+    object_id   INTEGER NOT NULL,
+    model       TEXT NOT NULL,
+    dim         INTEGER NOT NULL,
+    vector      BLOB NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_obj
+    ON embeddings(object_type, object_id, model);
+CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
 "#;
 
 /// Pragmas applied on every connection open.

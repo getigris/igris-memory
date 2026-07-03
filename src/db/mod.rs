@@ -9,7 +9,7 @@ mod timeline;
 
 use crate::errors::IgrisError;
 use crate::models::Observation;
-use crate::schema::{PRAGMAS, SCHEMA_V1, SCHEMA_V2, SCHEMA_VERSION};
+use crate::schema::{PRAGMAS, SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_VERSION};
 use rusqlite::{Connection, Result as SqlResult};
 use std::path::Path;
 
@@ -60,6 +60,9 @@ impl Database {
         }
         if version < 2 {
             self.conn.execute_batch(SCHEMA_V2)?;
+        }
+        if version < 3 {
+            self.conn.execute_batch(SCHEMA_V3)?;
         }
         if version < SCHEMA_VERSION {
             self.conn
@@ -118,3 +121,7 @@ mod tests;
 #[cfg(test)]
 #[path = "tests/entity_test.rs"]
 mod entity_tests;
+
+#[cfg(test)]
+#[path = "tests/embed_test.rs"]
+mod embed_tests;
