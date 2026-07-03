@@ -21,6 +21,18 @@ pub struct Cli {
     #[arg(long = "db-key", value_name = "KEY")]
     pub db_key: Option<String>,
 
+    /// Embedding provider for semantic search: none (default), hash (dev/test), or ollama.
+    #[arg(long, value_name = "PROVIDER")]
+    pub embedder: Option<String>,
+
+    /// Embedding model name (used with --embedder ollama).
+    #[arg(long = "embed-model", value_name = "MODEL")]
+    pub embed_model: Option<String>,
+
+    /// Ollama base URL (used with --embedder ollama).
+    #[arg(long = "embed-url", value_name = "URL")]
+    pub embed_url: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -104,6 +116,38 @@ impl Cli {
         self.db_key
             .clone()
             .or_else(|| std::env::var("IGRIS_DB_KEY").ok())
+    }
+
+    /// Resolve the configured embedder: CLI flag > env var > none.
+    /// Returns None (keyword-only) unless an embedder is explicitly configured.
+    #[allow(dead_code)] // TODO(fase-1b): remove once wired into the server (Task 3)
+    pub fn build_embedder(&self) -> Option<std::sync::Arc<dyn crate::embed::Embedder>> {
+        use crate::embed::{HashEmbedder, OllamaEmbedder};
+        use std::sync::Arc;
+
+        let kind = self
+            .embedder
+            .clone()
+            .or_else(|| std::env::var("IGRIS_EMBEDDER").ok())
+            .unwrap_or_else(|| "none".to_string());
+
+        match kind.as_str() {
+            "hash" => Some(Arc::new(HashEmbedder::new(256))),
+            "ollama" => {
+                let model = self
+                    .embed_model
+                    .clone()
+                    .or_else(|| std::env::var("IGRIS_EMBED_MODEL").ok())
+                    .unwrap_or_else(|| "nomic-embed-text".to_string());
+                let url = self
+                    .embed_url
+                    .clone()
+                    .or_else(|| std::env::var("IGRIS_EMBED_URL").ok())
+                    .unwrap_or_else(|| "http://localhost:11434".to_string());
+                Some(Arc::new(OllamaEmbedder::new(url, model)))
+            }
+            _ => None,
+        }
     }
 }
 

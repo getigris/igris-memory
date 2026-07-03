@@ -7,7 +7,7 @@
 
 /// A text→vector embedder. Implementations are provided by the app layer;
 /// `Database` never holds one.
-#[allow(dead_code)] // TODO(fase-1b): remove once wired into the server/CLI
+#[allow(dead_code)] // TODO(fase-1b): remove once wired into the server (Task 3)
 pub trait Embedder: Send + Sync {
     fn embed(&self, text: &str) -> Result<Vec<f32>, String>;
     fn dimensions(&self) -> usize;
@@ -16,13 +16,11 @@ pub trait Embedder: Send + Sync {
 
 /// Deterministic hashing embedder (bag-of-words into `dim` buckets, L2-normalized).
 /// For tests/dev only — not semantic.
-#[allow(dead_code)] // TODO(fase-1b): remove once wired into the server/CLI
 pub struct HashEmbedder {
     dim: usize,
 }
 
 impl HashEmbedder {
-    #[allow(dead_code)] // TODO(fase-1b): remove once wired into the server/CLI
     pub fn new(dim: usize) -> Self {
         Self { dim: dim.max(1) }
     }
@@ -61,14 +59,12 @@ impl Embedder for HashEmbedder {
 
 /// Embedder backed by a local Ollama server's `/api/embeddings` endpoint.
 /// Blocking HTTP via `ureq`; used only when explicitly configured.
-#[allow(dead_code)] // TODO(fase-1b): remove once used by the embedder factory (Task 2)
 pub struct OllamaEmbedder {
     url: String,
     model: String,
 }
 
 impl OllamaEmbedder {
-    #[allow(dead_code)] // TODO(fase-1b): remove once used by the embedder factory (Task 2)
     pub fn new(url: String, model: String) -> Self {
         Self {
             url: url.trim_end_matches('/').to_string(),
