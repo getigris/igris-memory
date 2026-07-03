@@ -88,7 +88,7 @@ Structure the summary as:
 | Tool | When to Use | Parameters |
 |------|-------------|------------|
 | `igris_context` | **Session start**. Load recent memories chronologically. | `project?`, `limit?` (default 20, max 50) |
-| `igris_search` | Find specific past decisions, patterns, or context by keyword. | `query` (required), `project?`, `type?`, `limit?` |
+| `igris_search` | Find specific past decisions, patterns, or context by keyword or natural language. Hybrid (semantic + keyword via RRF) when an embedder is configured, keyword-only otherwise. | `query` (required), `project?`, `type?`, `limit?` |
 | `igris_get` | Get full content of a memory by ID. | `id` (required) |
 | `igris_timeline` | Understand the sequence of events around a memory. | `observation_id` (required), `before?`, `after?` |
 | `igris_stats` | Memory store overview: totals by type/project. | _(none)_ |
@@ -114,7 +114,7 @@ Structure the summary as:
 
 | Tool | When to Use | Parameters |
 |------|-------------|------------|
-| `igris_save` | Save a new observation. Use `topic_key` for evolving knowledge; `mentions` to link entities. | `title`, `content` (required), `type?`, `project?`, `scope?`, `tags?`, `topic_key?`, `session_id?`, `mentions?` |
+| `igris_save` | Save a new observation. Use `topic_key` for evolving knowledge; `mentions` to link entities. Automatically embedded when an embedder is configured. | `title`, `content` (required), `type?`, `project?`, `scope?`, `tags?`, `topic_key?`, `session_id?`, `mentions?` |
 | `igris_update` | Correct specific fields of an existing memory. | `id` (required), `title?`, `content?`, `type?`, `tags?`, `topic_key?` |
 | `igris_suggest_topic_key` | Generate a consistent topic_key before saving. | `type`, `title`, `content` (all required) |
 

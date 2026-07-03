@@ -98,6 +98,31 @@ src/
 
 Embeddings are stored per (object, model) as f32 BLOBs in the `embeddings` table. The `hybrid_search` function fuses full-text (FTS5) and semantic (cosine similarity) results via Reciprocal Rank Fusion (RRF). The engine is LLM-free; the query embedding is supplied by the caller (server wiring and Ollama provider integration land in Fase 1b). Note: embeddings are a derived cache and are not yet exported.
 
+### Semantic Search Configuration
+
+To enable semantic search via an external embedder (e.g., Ollama), configure one of the following:
+
+**CLI flags:**
+```bash
+igmem --embedder ollama --embed-url http://localhost:11434 --embed-model nomic-embed-text
+```
+
+**Environment variables:**
+```bash
+IGRIS_EMBEDDER=ollama
+IGRIS_EMBED_URL=http://localhost:11434
+IGRIS_EMBED_MODEL=nomic-embed-text
+```
+
+**Backfill existing memories:**
+```bash
+igmem embed --backfill
+```
+
+Once configured, `igris_save` automatically embeds new observations and `igris_search` returns hybrid results (semantic + keyword via RRF).
+
+**Note on HTTP serve:** The HTTP REST API (`igmem serve`) currently supports keyword-only search. Hybrid search and automatic embedding on save for the HTTP interface is a deferred follow-up (MCP server wiring is complete in Fase 1b; HTTP parity is planned for Fase 1c).
+
 ### Sync
 
 The `igmem sync export` command writes a complete database export to a directory containing:
