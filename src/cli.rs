@@ -68,6 +68,9 @@ pub enum Command {
         /// Backfill embeddings for all existing observations.
         #[arg(long)]
         backfill: bool,
+        /// Rebuild the sqlite-vec ANN index from stored embeddings (requires --vector-index vec).
+        #[arg(long = "rebuild-index")]
+        rebuild_index: bool,
     },
 }
 

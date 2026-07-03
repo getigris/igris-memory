@@ -75,7 +75,10 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
         },
-        Some(Command::Embed { backfill: _ }) => {
+        Some(Command::Embed {
+            backfill: _backfill,
+            rebuild_index,
+        }) => {
             let embedder = embedder.ok_or_else(|| {
                 anyhow::anyhow!("no embedder configured — set --embedder ollama (or hash)")
             })?;
@@ -95,6 +98,14 @@ async fn main() -> anyhow::Result<()> {
                 "Embedded {done}/{total} observations with model '{}'.",
                 embedder.model()
             );
+
+            if rebuild_index && cli.vector_index_enabled() {
+                let n = db.vec_index_rebuild(embedder.model())?;
+                println!(
+                    "Rebuilt vec index with {n} vectors for model '{}'.",
+                    embedder.model()
+                );
+            }
         }
         None => {
             let server = IgrisServer::with_embedder(db, embedder);

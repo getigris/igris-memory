@@ -45,8 +45,6 @@ impl Database {
     }
 
     /// Rebuild the vec0 index from the durable embeddings table for `model`.
-    // Not yet wired to a caller; consumed by the `embed --rebuild-index` CLI in a later task.
-    #[allow(dead_code)]
     pub fn vec_index_rebuild(&self, model: &str) -> DbResult<i64> {
         self.conn
             .execute_batch("DROP TABLE IF EXISTS embeddings_vec;")?;
