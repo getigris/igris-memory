@@ -70,3 +70,61 @@ fn upsert_embedding_populates_vec_index_when_enabled() {
     assert_eq!(dim, 3);
     assert_eq!(model, "hash-v1");
 }
+
+#[test]
+fn vector_search_via_vec_index_matches_bruteforce_top() {
+    use crate::embed::{Embedder, HashEmbedder};
+    let e = HashEmbedder::new(64);
+
+    // Brute-force DB
+    let brute = Database::open_in_memory().unwrap();
+    // Vec-index DB
+    let vec = Database::open_in_memory_vec().unwrap();
+
+    for db in [&brute, &vec] {
+        let near = db
+            .save_observation(
+                "near",
+                "alpha beta gamma",
+                "manual",
+                None,
+                "project",
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let far = db
+            .save_observation(
+                "far",
+                "delta epsilon zeta",
+                "manual",
+                None,
+                "project",
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        for o in [&near, &far] {
+            db.upsert_embedding(
+                "observation",
+                o.id,
+                e.model(),
+                &e.embed(&o.content).unwrap(),
+            )
+            .unwrap();
+        }
+    }
+
+    let qe = e.embed("alpha beta").unwrap();
+    let b = brute.vector_search(&qe, e.model(), None, None, 10).unwrap();
+    let v = vec.vector_search(&qe, e.model(), None, None, 10).unwrap();
+    // same top observation via either backend
+    assert_eq!(b[0].0.title, "near");
+    assert_eq!(v[0].0.title, "near");
+    // vec backend also excludes soft-deleted
+    vec.delete_observation(v[0].0.id).unwrap();
+    let v2 = vec.vector_search(&qe, e.model(), None, None, 10).unwrap();
+    assert!(v2.iter().all(|(o, _)| o.title != "near"));
+}

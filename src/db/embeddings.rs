@@ -4,7 +4,7 @@ use crate::utils::now_utc;
 use rusqlite::params;
 use std::collections::HashMap;
 
-use super::{Database, DbResult};
+use super::{Database, DbResult, OptionalExt};
 
 impl Database {
     /// Store (or replace) an embedding for an object under a given model.
@@ -41,6 +41,19 @@ impl Database {
         project: Option<&str>,
         top_k: i64,
     ) -> DbResult<Vec<(Observation, f32)>> {
+        // Accelerated path: use the vec0 ANN index when enabled and matching.
+        if self.vector_index {
+            let indexed_model: Option<String> = self
+                .conn
+                .query_row("SELECT model FROM vec_index_meta WHERE id = 1", [], |r| {
+                    r.get(0)
+                })
+                .optional()?;
+            if indexed_model.as_deref() == Some(model) {
+                return self.vector_search_vec0(query_vec, obs_type, project, top_k);
+            }
+        }
+
         let mut stmt = self.conn.prepare(
             "SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
                     o.topic_key, o.tags, o.revision_count, o.duplicate_count,
@@ -73,6 +86,59 @@ impl Database {
         });
         scored.truncate(top_k.max(0) as usize);
         Ok(scored)
+    }
+
+    /// ANN-accelerated search over the vec0 index, post-filtered against the
+    /// durable observation/embedding tables. Similarity is always recomputed
+    /// as exact cosine from the durable blob, so the returned score does not
+    /// depend on vec0's internal distance metric.
+    fn vector_search_vec0(
+        &self,
+        query_vec: &[f32],
+        obs_type: Option<&str>,
+        project: Option<&str>,
+        top_k: i64,
+    ) -> DbResult<Vec<(Observation, f32)>> {
+        // Over-fetch KNN candidates, then post-filter (ANN + filter pattern).
+        let candidate_k = (top_k.max(1) * 8).max(64);
+        let query_blob = vec_to_blob(query_vec);
+        let mut stmt = self.conn.prepare(
+            "WITH knn AS (
+                 SELECT rowid, distance FROM embeddings_vec
+                 WHERE embedding MATCH ?1
+                 ORDER BY distance
+                 LIMIT ?2
+             )
+             SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
+                    o.topic_key, o.tags, o.revision_count, o.duplicate_count,
+                    o.created_at, o.updated_at, o.deleted_at, e.vector
+             FROM knn
+             JOIN observations o ON o.id = knn.rowid
+             JOIN embeddings e ON e.object_id = o.id AND e.object_type = 'observation'
+                               AND e.model = (SELECT model FROM vec_index_meta WHERE id = 1)
+             WHERE o.deleted_at IS NULL
+               AND (?3 IS NULL OR o.type = ?3)
+               AND (?4 IS NULL OR IFNULL(o.project, '') = IFNULL(?4, ''))",
+        )?;
+        let mut out: Vec<(Observation, f32)> = stmt
+            .query_map(params![query_blob, candidate_k, obs_type, project], |row| {
+                let obs = Self::row_to_observation(row);
+                let blob: Vec<u8> = row.get(14)?;
+                Ok((obs, blob))
+            })?
+            .filter_map(|r| r.ok())
+            .map(|(obs, blob)| {
+                let sim = cosine_similarity(query_vec, &blob_to_vec(&blob));
+                (obs, sim)
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.id.cmp(&b.0.id))
+        });
+        out.truncate(top_k.max(0) as usize);
+        Ok(out)
     }
 
     /// Hybrid retrieval: FTS5 fused with vector similarity via Reciprocal Rank
