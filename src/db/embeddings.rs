@@ -1,7 +1,8 @@
 use crate::embed::{blob_to_vec, cosine_similarity, vec_to_blob};
-use crate::models::Observation;
+use crate::models::{Observation, SearchResult};
 use crate::utils::now_utc;
 use rusqlite::params;
+use std::collections::HashMap;
 
 use super::{Database, DbResult};
 
@@ -69,5 +70,73 @@ impl Database {
         });
         scored.truncate(top_k.max(0) as usize);
         Ok(scored)
+    }
+
+    /// Hybrid retrieval: FTS5 fused with vector similarity via Reciprocal Rank
+    /// Fusion. With `query_embedding = None`, returns pure FTS (identical to
+    /// `search`). The returned `SearchResult.rank` carries the fused RRF score.
+    #[allow(dead_code)] // TODO(fase-1b): remove once wired into server/CLI
+    pub fn hybrid_search(
+        &self,
+        query: &str,
+        query_embedding: Option<&[f32]>,
+        model: &str,
+        obs_type: Option<&str>,
+        project: Option<&str>,
+        limit: Option<i64>,
+    ) -> DbResult<Vec<SearchResult>> {
+        let limit = limit.unwrap_or(super::DEFAULT_LIMIT).min(50);
+        let candidate_k = 50;
+
+        let fts = self.search(query, obs_type, project, Some(candidate_k))?;
+
+        let query_embedding = match query_embedding {
+            None => {
+                let mut r = fts;
+                r.truncate(limit.max(0) as usize);
+                return Ok(r);
+            }
+            Some(q) => q,
+        };
+
+        let vec_hits =
+            self.vector_search(query_embedding, model, obs_type, project, candidate_k)?;
+
+        const K: f64 = 60.0;
+        let mut score: HashMap<i64, f64> = HashMap::new();
+        let mut by_id: HashMap<i64, SearchResult> = HashMap::new();
+
+        for (rank, sr) in fts.iter().enumerate() {
+            let id = sr.observation.id;
+            *score.entry(id).or_insert(0.0) += 1.0 / (K + rank as f64 + 1.0);
+            by_id.entry(id).or_insert_with(|| sr.clone());
+        }
+        for (rank, (obs, _sim)) in vec_hits.iter().enumerate() {
+            let id = obs.id;
+            *score.entry(id).or_insert(0.0) += 1.0 / (K + rank as f64 + 1.0);
+            by_id.entry(id).or_insert_with(|| SearchResult {
+                observation: obs.clone(),
+                rank: 0.0,
+                snippet: None,
+            });
+        }
+
+        let mut fused: Vec<SearchResult> = score
+            .into_iter()
+            .filter_map(|(id, s)| {
+                by_id.remove(&id).map(|mut sr| {
+                    sr.rank = s;
+                    sr
+                })
+            })
+            .collect();
+        fused.sort_by(|a, b| {
+            b.rank
+                .partial_cmp(&a.rank)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.observation.id.cmp(&b.observation.id))
+        });
+        fused.truncate(limit.max(0) as usize);
+        Ok(fused)
     }
 }

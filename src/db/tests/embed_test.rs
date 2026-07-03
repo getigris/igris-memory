@@ -131,3 +131,90 @@ fn vector_search_ranks_by_cosine() {
     assert_eq!(hits2.len(), 1);
     assert_eq!(hits2[0].0.id, far.id);
 }
+
+#[test]
+fn hybrid_search_without_embedding_equals_fts() {
+    let db = Database::open_in_memory().unwrap();
+    db.save_observation(
+        "a",
+        "alpha keyword one",
+        "manual",
+        None,
+        "project",
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    db.save_observation(
+        "b",
+        "alpha keyword two",
+        "manual",
+        None,
+        "project",
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+
+    let fts = db.search("keyword", None, None, Some(10)).unwrap();
+    let hybrid = db
+        .hybrid_search("keyword", None, "hash-v1", None, None, Some(10))
+        .unwrap();
+    let fts_ids: Vec<i64> = fts.iter().map(|r| r.observation.id).collect();
+    let hyb_ids: Vec<i64> = hybrid.iter().map(|r| r.observation.id).collect();
+    assert_eq!(fts_ids, hyb_ids);
+}
+
+#[test]
+fn hybrid_search_fuses_vector_hits() {
+    use crate::embed::{Embedder, HashEmbedder};
+    let db = Database::open_in_memory().unwrap();
+    let e = HashEmbedder::new(64);
+    // `only_vec` does NOT contain the FTS query word "keyword", but its embedding
+    // overlaps the query tokens — it must surface via the vector arm.
+    let only_vec = db
+        .save_observation(
+            "v",
+            "alpha beta gamma",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    let fts_hit = db
+        .save_observation(
+            "f",
+            "keyword alpha",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    for o in [&only_vec, &fts_hit] {
+        db.upsert_embedding(
+            "observation",
+            o.id,
+            e.model(),
+            &e.embed(&o.content).unwrap(),
+        )
+        .unwrap();
+    }
+    let qe = e.embed("keyword alpha beta").unwrap();
+    let hybrid = db
+        .hybrid_search("keyword", Some(&qe), e.model(), None, None, Some(10))
+        .unwrap();
+    let ids: Vec<i64> = hybrid.iter().map(|r| r.observation.id).collect();
+    // both surface: fts_hit via FTS, only_vec via the vector arm (FTS alone would miss it)
+    assert!(ids.contains(&only_vec.id));
+    assert!(ids.contains(&fts_hit.id));
+    // fused rank score is populated (higher = better) and sorted descending
+    assert!(hybrid[0].rank >= hybrid[hybrid.len() - 1].rank);
+}
