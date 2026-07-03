@@ -52,14 +52,16 @@ The binary dispatches to one of four modes based on the CLI command:
 src/
 ├── main.rs          # Entry: CLI parse → logging → DB init → mode dispatch
 ├── cli.rs           # clap derive structs (Cli, Command, ServeArgs, SyncArgs)
-├── schema.rs        # SQL schema v1+v2: tables, FTS5, triggers, indices, pragmas (v2 = entity graph tables)
+├── schema.rs        # SQL schema v1+v2+v3: tables, FTS5, triggers, indices, pragmas (v2 = entity graph, v3 = embeddings)
 ├── store.rs         # BrainStore trait — storage contract (entity/graph surface)
+├── embed.rs         # Embedder trait, HashEmbedder, vector utils
 ├── db/
 │   ├── mod.rs           # Database struct (rusqlite Connection), init, schema apply
 │   ├── observations.rs  # CRUD + topic-key upsert + SHA-256 dedup (15-min window)
 │   ├── entities.rs      # BrainStore impl: entity upsert/get + alias resolution + graph trait methods
 │   ├── graph.rs         # Inherent edge helpers used by entities.rs's BrainStore impl: row_to_edge, EDGE_COLS
 │   ├── search.rs        # FTS5 queries, recent context, stats aggregation
+│   ├── embeddings.rs    # embedding storage + brute-force vector_search + hybrid_search (RRF)
 │   ├── sessions.rs      # Session lifecycle
 │   ├── timeline.rs      # Chronological before/after queries
 │   ├── export.rs        # Full export/import with hash-based dedup
@@ -91,6 +93,10 @@ src/
 - **Soft deletes**: `deleted_at` timestamp, all queries filter `WHERE deleted_at IS NULL`; `igris_purge` hard-deletes + VACUUMs
 - **FTS5 sync**: INSERT/UPDATE/DELETE triggers keep `observations_fts` in sync with `observations`
 - **Logging to stderr**: stdout is reserved for MCP stdio transport; all tracing goes to stderr
+
+### Hybrid Retrieval (Fase 1a)
+
+Embeddings are stored per (object, model) as f32 BLOBs in the `embeddings` table. The `hybrid_search` function fuses full-text (FTS5) and semantic (cosine similarity) results via Reciprocal Rank Fusion (RRF). The engine is LLM-free; the query embedding is supplied by the caller (server wiring and Ollama provider integration land in Fase 1b). Note: embeddings are a derived cache and are not yet exported.
 
 ### Sync
 
