@@ -27,18 +27,29 @@ const DEFAULT_LIMIT: i64 = 20;
 #[derive(Debug)]
 pub struct Database {
     pub(crate) conn: Connection,
+    // Not yet consumed by any query path; the ANN backend selection lands in a later task.
+    #[allow(dead_code)]
+    pub(crate) vector_index: bool,
 }
 
 impl Database {
     /// Open (or create) the database at the given path and run migrations.
     /// If `key` is provided, the database is encrypted with SQLCipher.
+    #[allow(dead_code)] // kept as the default entry point for callers who don't need `vector_index`
     pub fn open(path: &Path, key: Option<&str>) -> SqlResult<Self> {
+        Self::open_with(path, key, false)
+    }
+
+    /// Open (or create) the database at the given path and run migrations,
+    /// selecting the vector search backend (`vector_index`: false = brute-force, true = sqlite-vec ANN).
+    /// If `key` is provided, the database is encrypted with SQLCipher.
+    pub fn open_with(path: &Path, key: Option<&str>, vector_index: bool) -> SqlResult<Self> {
         crate::embed::register_sqlite_vec();
         let conn = Connection::open(path)?;
         if let Some(k) = key {
             conn.pragma_update(None, "key", k)?;
         }
-        let db = Self { conn };
+        let db = Self { conn, vector_index };
         db.init()?;
         Ok(db)
     }
@@ -48,7 +59,10 @@ impl Database {
     pub fn open_in_memory() -> SqlResult<Self> {
         crate::embed::register_sqlite_vec();
         let conn = Connection::open_in_memory()?;
-        let db = Self { conn };
+        let db = Self {
+            conn,
+            vector_index: false,
+        };
         db.init()?;
         Ok(db)
     }

@@ -199,6 +199,15 @@ fn cli_sync_import_parses() {
 }
 
 #[test]
+fn vector_index_flag_defaults_to_brute() {
+    use crate::cli::Cli;
+    use clap::Parser;
+    assert!(!Cli::parse_from(["igmem"]).vector_index_enabled());
+    assert!(Cli::parse_from(["igmem", "--vector-index", "vec"]).vector_index_enabled());
+    assert!(!Cli::parse_from(["igmem", "--vector-index", "brute"]).vector_index_enabled());
+}
+
+#[test]
 fn embedder_flags_parse_and_build() {
     use crate::cli::Cli;
     use clap::Parser;

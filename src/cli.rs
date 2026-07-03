@@ -33,6 +33,10 @@ pub struct Cli {
     #[arg(long = "embed-url", value_name = "URL")]
     pub embed_url: Option<String>,
 
+    /// Vector search backend: brute (default, exact) or vec (sqlite-vec ANN, opt-in).
+    #[arg(long = "vector-index", value_name = "BACKEND")]
+    pub vector_index: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -154,6 +158,16 @@ impl Cli {
             }
             _ => None,
         }
+    }
+
+    /// Whether the sqlite-vec ANN backend is enabled (CLI > env > default false).
+    pub fn vector_index_enabled(&self) -> bool {
+        let v = self
+            .vector_index
+            .clone()
+            .or_else(|| std::env::var("IGRIS_VECTOR_INDEX").ok())
+            .unwrap_or_else(|| "brute".to_string());
+        v == "vec"
     }
 }
 

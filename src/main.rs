@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Igris Memory starting — db at {}", db_path.display());
 
     let db_key = cli.resolve_db_key();
-    let db = Database::open(&db_path, db_key.as_deref())?;
+    let db = Database::open_with(&db_path, db_key.as_deref(), cli.vector_index_enabled())?;
     let embedder = cli.build_embedder();
 
     match cli.command {
