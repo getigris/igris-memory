@@ -137,4 +137,24 @@ impl Database {
         fused.truncate(limit.max(0) as usize);
         Ok(fused)
     }
+
+    /// Non-deleted observations that have no embedding for `model` (for backfill).
+    pub fn observations_needing_embedding(&self, model: &str) -> DbResult<Vec<(i64, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT o.id, o.content FROM observations o
+             WHERE o.deleted_at IS NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM embeddings e
+                 WHERE e.object_type = 'observation'
+                   AND e.object_id = o.id
+                   AND e.model = ?1
+               )
+             ORDER BY o.id",
+        )?;
+        let rows = stmt
+            .query_map(params![model], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
 }

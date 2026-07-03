@@ -58,6 +58,13 @@ pub enum Command {
         #[command(subcommand)]
         action: SyncAction,
     },
+
+    /// Embed observations that don't yet have an embedding (requires --embedder).
+    Embed {
+        /// Backfill embeddings for all existing observations.
+        #[arg(long)]
+        backfill: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

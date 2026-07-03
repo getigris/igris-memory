@@ -75,6 +75,27 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
         },
+        Some(Command::Embed { backfill: _ }) => {
+            let embedder = embedder.ok_or_else(|| {
+                anyhow::anyhow!("no embedder configured — set --embedder ollama (or hash)")
+            })?;
+            let pending = db.observations_needing_embedding(embedder.model())?;
+            let total = pending.len();
+            let mut done = 0usize;
+            for (id, content) in pending {
+                match embedder.embed(&content) {
+                    Ok(vec) => {
+                        db.upsert_embedding("observation", id, embedder.model(), &vec)?;
+                        done += 1;
+                    }
+                    Err(e) => tracing::warn!(observation = id, error = %e, "embed failed"),
+                }
+            }
+            println!(
+                "Embedded {done}/{total} observations with model '{}'.",
+                embedder.model()
+            );
+        }
         None => {
             let server = IgrisServer::with_embedder(db, embedder);
             let service = server.serve(stdio()).await.inspect_err(|e| {

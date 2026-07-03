@@ -233,6 +233,25 @@ fn hybrid_search_fuses_vector_hits() {
 }
 
 #[test]
+fn observations_needing_embedding_excludes_embedded() {
+    let db = Database::open_in_memory().unwrap();
+    let a = db
+        .save_observation("a", "one", "manual", None, "project", None, None, None)
+        .unwrap();
+    let b = db
+        .save_observation("b", "two", "manual", None, "project", None, None, None)
+        .unwrap();
+    // embed only `a`
+    db.upsert_embedding("observation", a.id, "hash-v1", &[0.1, 0.2])
+        .unwrap();
+
+    let need = db.observations_needing_embedding("hash-v1").unwrap();
+    assert_eq!(need.len(), 1);
+    assert_eq!(need[0].0, b.id);
+    assert_eq!(need[0].1, "two");
+}
+
+#[test]
 fn server_with_embedder_embeds_on_save_and_search_hybrid() {
     use crate::embed::HashEmbedder;
     use crate::server::IgrisServer;
