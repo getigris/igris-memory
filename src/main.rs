@@ -1,5 +1,6 @@
 mod cli;
 mod db;
+mod embed;
 mod errors;
 mod http;
 mod models;
