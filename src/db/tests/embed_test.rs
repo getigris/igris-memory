@@ -1,6 +1,19 @@
 use crate::db::Database;
 
 #[test]
+fn parse_ollama_embedding_response() {
+    use crate::embed::parse_embedding_response;
+    let ok = r#"{"embedding":[0.1,0.2,0.3]}"#;
+    assert_eq!(
+        parse_embedding_response(ok).unwrap(),
+        vec![0.1f32, 0.2, 0.3]
+    );
+    assert!(parse_embedding_response(r#"{"nope":1}"#).is_err()); // missing field
+    assert!(parse_embedding_response(r#"{"embedding":[]}"#).is_err()); // empty
+    assert!(parse_embedding_response("not json").is_err());
+}
+
+#[test]
 fn schema_v3_creates_embeddings_table() {
     let db = Database::open_in_memory().unwrap();
     let n: i64 = db

@@ -59,6 +59,64 @@ impl Embedder for HashEmbedder {
     }
 }
 
+/// Embedder backed by a local Ollama server's `/api/embeddings` endpoint.
+/// Blocking HTTP via `ureq`; used only when explicitly configured.
+#[allow(dead_code)] // TODO(fase-1b): remove once used by the embedder factory (Task 2)
+pub struct OllamaEmbedder {
+    url: String,
+    model: String,
+}
+
+impl OllamaEmbedder {
+    #[allow(dead_code)] // TODO(fase-1b): remove once used by the embedder factory (Task 2)
+    pub fn new(url: String, model: String) -> Self {
+        Self {
+            url: url.trim_end_matches('/').to_string(),
+            model,
+        }
+    }
+}
+
+impl Embedder for OllamaEmbedder {
+    fn embed(&self, text: &str) -> Result<Vec<f32>, String> {
+        let endpoint = format!("{}/api/embeddings", self.url);
+        let body = serde_json::json!({ "model": self.model, "prompt": text }).to_string();
+        let resp = ureq::post(&endpoint)
+            .set("Content-Type", "application/json")
+            .send_string(&body)
+            .map_err(|e| format!("ollama request failed: {e}"))?;
+        let text = resp
+            .into_string()
+            .map_err(|e| format!("ollama read failed: {e}"))?;
+        parse_embedding_response(&text)
+    }
+
+    fn dimensions(&self) -> usize {
+        0 // dynamic (depends on the Ollama model); not used in the retrieval path
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+}
+
+/// Parse Ollama's `{"embedding": [..]}` response body into a vector.
+pub(crate) fn parse_embedding_response(body: &str) -> Result<Vec<f32>, String> {
+    let v: serde_json::Value = serde_json::from_str(body).map_err(|e| format!("bad json: {e}"))?;
+    let arr = v
+        .get("embedding")
+        .and_then(|e| e.as_array())
+        .ok_or("response missing 'embedding' array")?;
+    let out: Vec<f32> = arr
+        .iter()
+        .map(|x| x.as_f64().unwrap_or(0.0) as f32)
+        .collect();
+    if out.is_empty() {
+        return Err("empty embedding".to_string());
+    }
+    Ok(out)
+}
+
 /// Serialize a vector to a little-endian f32 BLOB.
 #[allow(dead_code)] // Used by upsert_embedding (test-only until fase-1b)
 pub fn vec_to_blob(v: &[f32]) -> Vec<u8> {
