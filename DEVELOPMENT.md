@@ -69,6 +69,7 @@ src/
 │   └── purge.rs         # Hard-delete soft-deleted entries + VACUUM
 ├── server/
 │   ├── mod.rs       # IgrisServer with #[tool_router] — 27 MCP tools
+│   ├── notify.rs    # Best-effort MCP logging/progress notifications (logging capability, dynamic level via logging/setLevel)
 │   └── args.rs      # Tool parameter schemas (schemars JsonSchema)
 ├── http/
 │   ├── mod.rs       # Axum server setup, AppState = Arc<Mutex<Database>>
@@ -196,6 +197,14 @@ sync-dir/
 ```
 
 Chunked observation files allow large exports to be split and re-imported incrementally. The `igmem sync import` command reads this structure and populates the database, deduplicating observations by content hash and entities by slug, then remapping IDs to preserve entity-graph relationships.
+
+### MCP Logs & Progress Notifications
+
+Every MCP tool call emits best-effort `notifications/message` (a start log and an end log with `duration_ms`, plus any existing warning paths duplicated at `Warning` level) and, for bulk operations (`igris_export`, `igris_import`, `igris_purge`) and embedder-backed calls (`igris_save`, `igris_search`, `igris_entity_merge`), `notifications/progress` — but only when the client's request carries a `progressToken`. Both are fire-and-forget (`tokio::spawn`, never awaited by the tool): a client that ignores them, or a non-rmcp client that never sends a `progressToken`, sees identical tool behavior, return values, and latency to before this feature.
+
+The client can raise or lower verbosity live via the standard `logging/setLevel` request (default minimum level: `info`). Notification payloads never include full `title`/`content` bodies — only ids, counts, lengths, and (for search queries) a 120-char truncated preview — since `content`/`title` may still contain unredacted `<private>...</private>` text at call time (redaction happens on write).
+
+`igris_export`/`igris_import` report progress across the 6 portable sections (observations, sessions, entities, aliases, edges, mentions) via `Database::export_all_with_progress`/`import_data_with_progress`; `igris_purge` reports its 2 phases (hard-delete, `VACUUM`) via `Database::purge_with_progress`. The plain `export_all`/`import_data`/`purge` methods are unchanged thin wrappers, so `sync.rs` and the HTTP REST API are unaffected. See `src/server/notify.rs`.
 
 ### Database
 
