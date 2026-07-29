@@ -9,6 +9,17 @@ impl Database {
     /// as a portable JSON structure. All non-deleted rows are included; entities
     /// and edges are also filtered to exclude soft-deleted entries.
     pub fn export_all(&self) -> DbResult<ExportData> {
+        self.export_all_with_progress(|_, _, _| {})
+    }
+
+    /// Same as [`Database::export_all`], reporting progress after each of the 6
+    /// sections completes via `on_progress(section_name, sections_done, sections_total)`.
+    pub fn export_all_with_progress(
+        &self,
+        mut on_progress: impl FnMut(&str, u64, u64),
+    ) -> DbResult<ExportData> {
+        const TOTAL: u64 = 6;
+
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, type, title, content, project, scope,
                     topic_key, tags, revision_count, duplicate_count,
@@ -20,6 +31,7 @@ impl Database {
         while let Some(row) = rows.next()? {
             observations.push(Self::row_to_observation(row));
         }
+        on_progress("observations", 1, TOTAL);
 
         let mut stmt = self.conn.prepare(
             "SELECT id, project, directory, started_at, ended_at, summary
@@ -37,6 +49,7 @@ impl Database {
                 summary: row.get(5)?,
             });
         }
+        on_progress("sessions", 2, TOTAL);
 
         // Entities (skip soft-deleted)
         let mut stmt = self.conn.prepare(
@@ -49,6 +62,7 @@ impl Database {
         while let Some(row) = rows.next()? {
             entities.push(Self::row_to_entity(row));
         }
+        on_progress("entities", 3, TOTAL);
 
         // Aliases
         let mut stmt = self.conn.prepare(
@@ -63,6 +77,7 @@ impl Database {
                 source: row.get(2)?,
             });
         }
+        on_progress("aliases", 4, TOTAL);
 
         // Edges (skip soft-deleted)
         let mut stmt = self.conn.prepare(
@@ -75,6 +90,7 @@ impl Database {
         while let Some(row) = rows.next()? {
             edges.push(Self::row_to_edge(row));
         }
+        on_progress("edges", 5, TOTAL);
 
         // Mentions
         let mut stmt = self
@@ -88,6 +104,7 @@ impl Database {
                 entity_id: row.get(1)?,
             });
         }
+        on_progress("mentions", 6, TOTAL);
 
         Ok(ExportData {
             version: crate::schema::SCHEMA_VERSION,
@@ -105,7 +122,18 @@ impl Database {
     /// Deduplicates observations by content hash and entities by slug+project+scope;
     /// remaps old ids to the destination's ids so aliases/edges/mentions stay linked.
     pub fn import_data(&self, data: &ExportData) -> DbResult<ImportResult> {
+        self.import_data_with_progress(data, |_, _, _| {})
+    }
+
+    /// Same as [`Database::import_data`], reporting progress after each of the 6
+    /// sections completes via `on_progress(section_name, sections_done, sections_total)`.
+    pub fn import_data_with_progress(
+        &self,
+        data: &ExportData,
+        mut on_progress: impl FnMut(&str, u64, u64),
+    ) -> DbResult<ImportResult> {
         use std::collections::HashMap;
+        const TOTAL: u64 = 6;
 
         let mut obs_imported: i64 = 0;
         let mut obs_skipped: i64 = 0;
@@ -141,6 +169,7 @@ impl Database {
             )?;
             sess_imported += 1;
         }
+        on_progress("sessions", 1, TOTAL);
 
         // Observations — dedup by hash; record old->new id (dupes map to existing id).
         let mut obs_map: HashMap<i64, i64> = HashMap::new();
@@ -197,6 +226,7 @@ impl Database {
             obs_map.insert(obs.id, self.conn.last_insert_rowid());
             obs_imported += 1;
         }
+        on_progress("observations", 2, TOTAL);
 
         // Entities — dedup by (slug, project, scope); record old->new id.
         let mut ent_map: HashMap<i64, i64> = HashMap::new();
@@ -244,6 +274,7 @@ impl Database {
             ent_map.insert(e.id, self.conn.last_insert_rowid());
             ent_imported += 1;
         }
+        on_progress("entities", 3, TOTAL);
 
         // Aliases — remap entity_id, idempotent via unique index.
         for a in &data.entity_aliases {
@@ -255,6 +286,7 @@ impl Database {
                 )?;
             }
         }
+        on_progress("aliases", 4, TOTAL);
 
         // Edges — remap both endpoints; skip soft-deleted; count only new rows.
         for ed in &data.edges {
@@ -283,6 +315,7 @@ impl Database {
                 edges_imported += changed as i64;
             }
         }
+        on_progress("edges", 5, TOTAL);
 
         // Mentions — remap observation_id and entity_id; count only new rows.
         for m in &data.mentions {
@@ -296,6 +329,7 @@ impl Database {
                 mentions_imported += changed as i64;
             }
         }
+        on_progress("mentions", 6, TOTAL);
 
         Ok(ImportResult {
             observations_imported: obs_imported,

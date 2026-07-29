@@ -1048,3 +1048,81 @@ fn encryption_key_with_special_chars() {
     let obs = db.recent_context(None, Some(1)).unwrap();
     assert_eq!(obs.len(), 1);
 }
+
+// ─── Progress Callbacks ────────────────────────────────────────
+
+#[test]
+fn export_all_with_progress_reports_all_six_sections() {
+    let db = Database::open_in_memory().unwrap();
+    db.save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    let mut seen: Vec<(String, u64, u64)> = Vec::new();
+    let data = db
+        .export_all_with_progress(|section, done, total| {
+            seen.push((section.to_string(), done, total));
+        })
+        .unwrap();
+    assert_eq!(data.observations.len(), 1);
+    assert_eq!(
+        seen,
+        vec![
+            ("observations".to_string(), 1, 6),
+            ("sessions".to_string(), 2, 6),
+            ("entities".to_string(), 3, 6),
+            ("aliases".to_string(), 4, 6),
+            ("edges".to_string(), 5, 6),
+            ("mentions".to_string(), 6, 6),
+        ]
+    );
+}
+
+#[test]
+fn import_data_with_progress_reports_all_six_sections() {
+    let src = Database::open_in_memory().unwrap();
+    src.save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    let data = src.export_all().unwrap();
+
+    let dst = Database::open_in_memory().unwrap();
+    let mut seen: Vec<(String, u64, u64)> = Vec::new();
+    let result = dst
+        .import_data_with_progress(&data, |section, done, total| {
+            seen.push((section.to_string(), done, total));
+        })
+        .unwrap();
+    assert_eq!(result.observations_imported, 1);
+    assert_eq!(
+        seen,
+        vec![
+            ("sessions".to_string(), 1, 6),
+            ("observations".to_string(), 2, 6),
+            ("entities".to_string(), 3, 6),
+            ("aliases".to_string(), 4, 6),
+            ("edges".to_string(), 5, 6),
+            ("mentions".to_string(), 6, 6),
+        ]
+    );
+}
+
+#[test]
+fn purge_with_progress_reports_both_phases() {
+    let db = Database::open_in_memory().unwrap();
+    let obs = db
+        .save_observation("t", "c", "manual", None, "project", None, None, None)
+        .unwrap();
+    db.delete_observation(obs.id).unwrap();
+    let mut seen: Vec<(String, u64, u64)> = Vec::new();
+    let result = db
+        .purge_with_progress(0, |phase, done, total| {
+            seen.push((phase.to_string(), done, total));
+        })
+        .unwrap();
+    assert_eq!(result.observations_purged, 1);
+    assert_eq!(
+        seen,
+        vec![
+            ("hard_delete".to_string(), 1, 2),
+            ("vacuum".to_string(), 2, 2)
+        ]
+    );
+}
