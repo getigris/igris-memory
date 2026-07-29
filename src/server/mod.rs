@@ -755,22 +755,49 @@ impl IgrisServer {
         name = "igris_session_start",
         description = "Register a new working session. Sessions group memories by time period and provide continuity between conversations."
     )]
-    fn igris_session_start(&self, Parameters(args): Parameters<SessionStartArgs>) -> String {
+    fn igris_session_start(
+        &self,
+        Parameters(args): Parameters<SessionStartArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_session_start",
+            "start",
+            serde_json::json!({ "project": args.project, "directory": args.directory }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.start_session(&args.id, &args.project, args.directory.as_deref()) {
-            Ok(session) => to_json(&session),
+            Ok(session) => {
+                end_data = serde_json::json!({ "id": session.id });
+                to_json(&session)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_session_start", error = %e, "validation/db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_session_start",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_session_start",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_session_start", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_session_start",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -779,22 +806,49 @@ impl IgrisServer {
         name = "igris_session_end",
         description = "Mark a session as completed with an optional summary."
     )]
-    fn igris_session_end(&self, Parameters(args): Parameters<SessionEndArgs>) -> String {
+    fn igris_session_end(
+        &self,
+        Parameters(args): Parameters<SessionEndArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_session_end",
+            "start",
+            serde_json::json!({ "id": args.id }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.end_session(&args.id, args.summary.as_deref()) {
-            Ok(session) => to_json(&session),
+            Ok(session) => {
+                end_data = serde_json::json!({ "id": session.id });
+                to_json(&session)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_session_end", error = %e, "validation/db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_session_end",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_session_end",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_session_end", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_session_end",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -803,22 +857,49 @@ impl IgrisServer {
         name = "igris_session_summary",
         description = "Save a structured summary of what was accomplished. This is the most important memory for continuity — the next session loads it via igris_context. Call this before ending the conversation."
     )]
-    fn igris_session_summary(&self, Parameters(args): Parameters<SessionSummaryArgs>) -> String {
+    fn igris_session_summary(
+        &self,
+        Parameters(args): Parameters<SessionSummaryArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_session_summary",
+            "start",
+            serde_json::json!({ "project": args.project, "content_len": args.content.len() }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.save_session_summary(&args.content, &args.project) {
-            Ok(session) => to_json(&session),
+            Ok(session) => {
+                end_data = serde_json::json!({ "session_id": session.id });
+                to_json(&session)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_session_summary", error = %e, "validation/db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_session_summary",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_session_summary",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_session_summary", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_session_summary",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -885,3 +966,7 @@ impl ServerHandler for IgrisServer {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/server_test.rs"]
+mod server_tests;
