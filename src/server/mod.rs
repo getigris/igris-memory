@@ -85,12 +85,29 @@ impl IgrisServer {
         name = "igris_save",
         description = "Save a memory. Call this proactively when the user makes a decision, discovers something, fixes a bug, creates a plan, or asks you to remember something. Use topic_key for evolving knowledge — same key updates in place instead of creating duplicates. Wrap secrets in <private>...</private> to auto-redact."
     )]
-    pub(crate) fn igris_save(&self, Parameters(args): Parameters<SaveArgs>) -> String {
+    pub(crate) fn igris_save(
+        &self,
+        Parameters(args): Parameters<SaveArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_save",
+            "start",
+            serde_json::json!({
+                "type": args.observation_type,
+                "topic_key": args.topic_key,
+                "tags_count": args.tags.as_ref().map(|t| t.len()).unwrap_or(0),
+                "content_len": args.content.len(),
+            }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.save_observation(
             &args.title,
             &args.content,
@@ -108,31 +125,71 @@ impl IgrisServer {
                         db.record_mentions(obs.id, mentions, args.project.as_deref(), &args.scope)
                 {
                     tracing::warn!(tool = "igris_save", error = %e, "mention wiring failed");
+                    self.notify_log(
+                        &ctx,
+                        LoggingLevel::Warning,
+                        "igris_save",
+                        "mentions_failed",
+                        serde_json::json!({ "error": e.to_string() }),
+                    );
                 }
                 if let Some(embedder) = self.embedder.as_ref() {
+                    self.notify_progress(&ctx, 1.0, Some(2.0), "embedding...");
                     match embedder.embed(&args.content) {
                         Ok(vec) => {
                             if let Err(e) =
                                 db.upsert_embedding("observation", obs.id, embedder.model(), &vec)
                             {
                                 tracing::warn!(tool = "igris_save", error = %e, "embedding store failed");
+                                self.notify_log(
+                                    &ctx,
+                                    LoggingLevel::Warning,
+                                    "igris_save",
+                                    "embedding_store_failed",
+                                    serde_json::json!({ "error": e.to_string() }),
+                                );
                             }
                         }
                         Err(e) => {
                             tracing::warn!(tool = "igris_save", error = %e, "embedding failed");
+                            self.notify_log(
+                                &ctx,
+                                LoggingLevel::Warning,
+                                "igris_save",
+                                "embedding_failed",
+                                serde_json::json!({ "error": e }),
+                            );
                         }
                     }
+                    self.notify_progress(&ctx, 2.0, Some(2.0), "saved");
                 }
+                end_data = serde_json::json!({
+                    "id": obs.id,
+                    "duplicate": obs.duplicate_count > 1,
+                    "revision_count": obs.revision_count,
+                });
                 to_json(&obs)
             }
             Err(e) => {
                 tracing::warn!(tool = "igris_save", error = %e, "validation/db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_save",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_save",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_save", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_save",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -141,17 +198,45 @@ impl IgrisServer {
         name = "igris_search",
         description = "Search memories by keyword or natural language. Returns ranked results with snippets. Use this to find specific past decisions, patterns, or context before making recommendations."
     )]
-    pub(crate) fn igris_search(&self, Parameters(args): Parameters<SearchArgs>) -> String {
+    pub(crate) fn igris_search(
+        &self,
+        Parameters(args): Parameters<SearchArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_search",
+            "start",
+            serde_json::json!({
+                "query_preview": args.query.chars().take(120).collect::<String>(),
+                "observation_type": args.observation_type,
+                "project": args.project,
+                "limit": args.limit,
+            }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        if self.embedder.is_some() {
+            self.notify_progress(&ctx, 1.0, Some(2.0), "embedding query...");
+        }
         let query_embedding = self
             .embedder
             .as_ref()
             .and_then(|e| e.embed(&args.query).ok());
         let model = self.embedder.as_ref().map(|e| e.model()).unwrap_or("");
+        if self.embedder.is_some() {
+            self.notify_progress(&ctx, 2.0, Some(2.0), "searching...");
+        }
+        let mode = if query_embedding.is_some() {
+            "hybrid"
+        } else {
+            "keyword"
+        };
+        let mut end_data = serde_json::json!({});
         let result = match db.hybrid_search(
             &args.query,
             query_embedding.as_deref(),
@@ -160,15 +245,33 @@ impl IgrisServer {
             args.project.as_deref(),
             args.limit,
         ) {
-            Ok(results) => to_json(&results),
+            Ok(results) => {
+                end_data = serde_json::json!({
+                    "results_count": results.len(),
+                    "mode": mode,
+                });
+                to_json(&results)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_search", error = %e, "validation/db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_search",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_search",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_search", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_search",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -177,22 +280,42 @@ impl IgrisServer {
         name = "igris_get",
         description = "Get the full content of a memory by ID. Use after search or context when you need the complete details of a specific observation."
     )]
-    fn igris_get(&self, Parameters(args): Parameters<GetArgs>) -> String {
+    fn igris_get(
+        &self,
+        Parameters(args): Parameters<GetArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_get",
+            "start",
+            serde_json::json!({ "id": args.id }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({ "found": false });
         let result = match db.get_observation(args.id) {
-            Ok(obs) => to_json(&obs),
+            Ok(obs) => {
+                end_data = serde_json::json!({ "found": true });
+                to_json(&obs)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_get", error = %e, "not found or db error");
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_get",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_get", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_get",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -201,12 +324,40 @@ impl IgrisServer {
         name = "igris_update",
         description = "Update specific fields of an existing memory. Use for corrections. For evolving knowledge, prefer saving with the same topic_key instead."
     )]
-    fn igris_update(&self, Parameters(args): Parameters<UpdateArgs>) -> String {
+    fn igris_update(
+        &self,
+        Parameters(args): Parameters<UpdateArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        let mut fields_changed: Vec<&str> = Vec::new();
+        if args.title.is_some() {
+            fields_changed.push("title");
+        }
+        if args.content.is_some() {
+            fields_changed.push("content");
+        }
+        if args.observation_type.is_some() {
+            fields_changed.push("type");
+        }
+        if args.tags.is_some() {
+            fields_changed.push("tags");
+        }
+        if args.topic_key.is_some() {
+            fields_changed.push("topic_key");
+        }
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_update",
+            "start",
+            serde_json::json!({ "id": args.id, "fields_changed": fields_changed }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.update_observation(
             args.id,
             args.title.as_deref(),
@@ -215,15 +366,30 @@ impl IgrisServer {
             args.tags.as_deref(),
             args.topic_key.as_deref(),
         ) {
-            Ok(obs) => to_json(&obs),
+            Ok(obs) => {
+                end_data = serde_json::json!({ "id": obs.id });
+                to_json(&obs)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_update", error = %e, "validation/db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_update",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_update",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_update", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_update",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -232,20 +398,43 @@ impl IgrisServer {
         name = "igris_delete",
         description = "Soft-delete a memory. Use for completed plans, outdated info, or memories the user wants removed. Data is kept but excluded from search and context. Use igris_purge later to permanently clean up."
     )]
-    fn igris_delete(&self, Parameters(args): Parameters<DeleteArgs>) -> String {
+    fn igris_delete(
+        &self,
+        Parameters(args): Parameters<DeleteArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_delete",
+            "start",
+            serde_json::json!({ "id": args.id }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.delete_observation(args.id) {
-            Ok(true) => r#"{"deleted": true}"#.to_string(),
+            Ok(true) => {
+                end_data = serde_json::json!({ "deleted": true });
+                r#"{"deleted": true}"#.to_string()
+            }
             Ok(false) => {
                 tracing::warn!(
                     tool = "igris_delete",
                     id = args.id,
                     "not found or already deleted"
                 );
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_delete",
+                    "error",
+                    serde_json::json!({ "id": args.id, "reason": "not found or already deleted" }),
+                );
+                end_data = serde_json::json!({ "deleted": false });
                 err_json(IgrisError::not_found(format!(
                     "Observation {} not found or already deleted",
                     args.id
@@ -253,12 +442,25 @@ impl IgrisServer {
             }
             Err(e) => {
                 tracing::warn!(tool = "igris_delete", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_delete",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
+                end_data = serde_json::json!({ "deleted": false });
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_delete",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_delete", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_delete",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -267,22 +469,49 @@ impl IgrisServer {
         name = "igris_context",
         description = "Load recent memories. Call this at the START of every conversation to understand what was done in previous sessions. Returns observations ordered by most recently updated."
     )]
-    fn igris_context(&self, Parameters(args): Parameters<ContextArgs>) -> String {
+    fn igris_context(
+        &self,
+        Parameters(args): Parameters<ContextArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_context",
+            "start",
+            serde_json::json!({ "project": args.project, "limit": args.limit }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.recent_context(args.project.as_deref(), args.limit) {
-            Ok(observations) => to_json(&observations),
+            Ok(observations) => {
+                end_data = serde_json::json!({ "results_count": observations.len() });
+                to_json(&observations)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_context", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_context",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_context",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_context", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_context",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -291,22 +520,38 @@ impl IgrisServer {
         name = "igris_stats",
         description = "Get memory store statistics. Shows total memories, sessions, and breakdowns by type and project."
     )]
-    fn igris_stats(&self) -> String {
+    fn igris_stats(&self, ctx: RequestContext<RoleServer>) -> String {
         let start = Instant::now();
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.stats() {
-            Ok(stats) => to_json(&stats),
+            Ok(stats) => {
+                end_data = serde_json::json!({});
+                to_json(&stats)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_stats", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_stats",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_stats",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_stats", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_stats",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -315,22 +560,55 @@ impl IgrisServer {
         name = "igris_timeline",
         description = "View the chronological context around a memory. Shows what was saved before and after, useful to understand the sequence of decisions or events."
     )]
-    fn igris_timeline(&self, Parameters(args): Parameters<TimelineArgs>) -> String {
+    fn igris_timeline(
+        &self,
+        Parameters(args): Parameters<TimelineArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_timeline",
+            "start",
+            serde_json::json!({
+                "observation_id": args.observation_id,
+                "before": args.before,
+                "after": args.after,
+            }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.timeline(args.observation_id, args.before, args.after) {
-            Ok(tl) => to_json(&tl),
+            Ok(tl) => {
+                end_data = serde_json::json!({
+                    "results_count": tl.before.len() + tl.after.len() + 1,
+                });
+                to_json(&tl)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_timeline", error = %e, "not found or db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_timeline",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_timeline",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_timeline", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_timeline",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -339,9 +617,21 @@ impl IgrisServer {
         name = "igris_suggest_topic_key",
         description = "Generate a consistent topic_key before saving. Ensures related memories share the same key for automatic grouping and in-place updates."
     )]
-    fn igris_suggest_topic_key(&self, Parameters(args): Parameters<SuggestTopicKeyArgs>) -> String {
+    fn igris_suggest_topic_key(
+        &self,
+        Parameters(args): Parameters<SuggestTopicKeyArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let key = topic::suggest_topic_key(&args.observation_type, &args.title, &args.content);
-        serde_json::json!({ "topic_key": key }).to_string()
+        let response = serde_json::json!({ "topic_key": key });
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_suggest_topic_key",
+            "end",
+            response.clone(),
+        );
+        response.to_string()
     }
 
     #[tool(

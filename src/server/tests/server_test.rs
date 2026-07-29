@@ -148,3 +148,141 @@ async fn logs_and_progress_notifications() -> anyhow::Result<()> {
     client.cancel().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn get_tool_baseline_logs_no_progress() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    client
+        .call_tool(
+            CallToolRequestParams::new("igris_get")
+                .with_arguments(obj(serde_json::json!({ "id": 999 }))),
+        )
+        .await?;
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= 2
+    })
+    .await;
+    let logs = collected.logs.lock().unwrap();
+    assert_eq!(
+        logs.len(),
+        2,
+        "expected start+end log messages, got {logs:?}"
+    );
+    assert_eq!(collected.progress.lock().unwrap().len(), 0);
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn save_and_search_progress_only_with_embedder() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let embedder = Arc::new(crate::embed::HashEmbedder::new(32));
+    let server = IgrisServer::with_embedder(db, Some(embedder));
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    client
+        .call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+            serde_json::json!({
+                "title": "test",
+                "content": "hello world",
+            }),
+        )))
+        .await?;
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.progress.lock().unwrap().len() >= 2
+    })
+    .await;
+    {
+        let progress = collected.progress.lock().unwrap();
+        assert_eq!(
+            progress.len(),
+            2,
+            "expected a 2-step progress bracket, got {progress:?}"
+        );
+        assert_eq!(progress[0].total, Some(2.0));
+    }
+    collected.progress.lock().unwrap().clear();
+
+    client
+        .call_tool(
+            CallToolRequestParams::new("igris_search")
+                .with_arguments(obj(serde_json::json!({ "query": "hello" }))),
+        )
+        .await?;
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.progress.lock().unwrap().len() >= 2
+    })
+    .await;
+    assert_eq!(collected.progress.lock().unwrap().len(), 2);
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn search_no_progress_without_embedder() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    client
+        .call_tool(
+            CallToolRequestParams::new("igris_search")
+                .with_arguments(obj(serde_json::json!({ "query": "hello" }))),
+        )
+        .await?;
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= 2
+    })
+    .await;
+    assert_eq!(collected.progress.lock().unwrap().len(), 0);
+
+    client.cancel().await?;
+    Ok(())
+}

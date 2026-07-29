@@ -251,41 +251,95 @@ fn observations_needing_embedding_excludes_embedded() {
     assert_eq!(need[0].1, "two");
 }
 
-#[test]
-fn server_with_embedder_embeds_on_save_and_search_hybrid() {
+#[tokio::test]
+async fn server_with_embedder_embeds_on_save_and_search_hybrid() -> anyhow::Result<()> {
     use crate::embed::HashEmbedder;
     use crate::server::IgrisServer;
-    use crate::server::args::{SaveArgs, SearchArgs};
-    use rmcp::handler::server::wrapper::Parameters;
+    use rmcp::model::CallToolRequestParams;
+    use rmcp::service::NotificationContext;
+    use rmcp::{ClientHandler, RoleClient, ServiceExt};
     use std::sync::Arc;
 
-    let db = Database::open_in_memory().unwrap();
-    let server = IgrisServer::with_embedder(db, Some(Arc::new(HashEmbedder::new(64))));
+    let db = Database::open_in_memory()?;
+    let embedder = Arc::new(HashEmbedder::new(64));
+    let server = IgrisServer::with_embedder(db, Some(embedder));
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    #[derive(Clone, Default)]
+    struct NoOpClient;
+
+    impl ClientHandler for NoOpClient {
+        async fn on_logging_message(
+            &self,
+            _: rmcp::model::LoggingMessageNotificationParam,
+            _: NotificationContext<RoleClient>,
+        ) {
+        }
+
+        async fn on_progress(
+            &self,
+            _: rmcp::model::ProgressNotificationParam,
+            _: NotificationContext<RoleClient>,
+        ) {
+        }
+    }
+
+    let client = NoOpClient.serve(client_transport).await?;
 
     // save → an embedding row is created for this observation under model "hash-v1"
-    let save_json = server.igris_save(Parameters(SaveArgs {
-        title: "t".into(),
-        content: "alpha beta gamma".into(),
-        observation_type: "manual".into(),
-        project: None,
-        scope: "project".into(),
-        topic_key: None,
-        tags: None,
-        session_id: None,
-        mentions: None,
-    }));
-    assert!(!save_json.contains("\"error\""), "save failed: {save_json}");
+    let save_response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_save").with_arguments(
+                serde_json::json!({
+                    "title": "t",
+                    "content": "alpha beta gamma",
+                    "observation_type": "manual",
+                    "scope": "project",
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        )
+        .await?;
+    assert_ne!(
+        save_response.is_error,
+        Some(true),
+        "save failed: {:?}",
+        save_response.content
+    );
 
     // search returns a non-error result (hybrid path exercised)
-    let search_json = server.igris_search(Parameters(SearchArgs {
-        query: "alpha".into(),
-        observation_type: None,
-        project: None,
-        limit: None,
-    }));
-    assert!(
-        !search_json.contains("\"error\""),
-        "search failed: {search_json}"
+    let search_response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_search").with_arguments(
+                serde_json::json!({ "query": "alpha" })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        )
+        .await?;
+    assert_ne!(
+        search_response.is_error,
+        Some(true),
+        "search failed: {:?}",
+        search_response.content
     );
-    assert!(search_json.contains("alpha")); // the saved content surfaces
+
+    // Verify that the saved content surfaces in search results (by checking the response isn't empty)
+    let content_json = serde_json::to_string(&search_response.content).unwrap_or_default();
+    assert!(
+        content_json.contains("alpha"),
+        "search results should contain 'alpha': {}",
+        content_json
+    );
+
+    client.cancel().await?;
+    Ok(())
 }
