@@ -729,6 +729,17 @@ async fn call_and_assert_uniform(
             "{tool}: expected only Info-level messages on the success path, got {logs:?}"
         );
     }
+    // None of these 18 tools emit progress notifications — catches a future
+    // regression where one starts leaking progress (or another tool's token)
+    // without a dedicated test noticing. Safe to check without an extra wait:
+    // the drain task delivers strictly FIFO, and every tool enqueues any
+    // progress calls before its final "end" log, so observing `expected_count`
+    // logs above already guarantees any earlier-enqueued progress notification
+    // has been delivered too.
+    assert!(
+        collected.progress.lock().unwrap().is_empty(),
+        "{tool}: unexpected progress notification for a tool that shouldn't emit one"
+    );
     collected.logs.lock().unwrap().clear();
     Ok(())
 }
