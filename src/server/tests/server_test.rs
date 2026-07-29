@@ -337,6 +337,54 @@ async fn save_and_search_progress_only_with_embedder() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn purge_reports_two_phase_progress() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let obs = db.save_observation("t", "c", "manual", None, "project", None, None, None)?;
+    db.delete_observation(obs.id)?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_purge")
+                .with_arguments(obj(serde_json::json!({ "older_than_days": 0 }))),
+        )
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.progress.lock().unwrap().len() >= 2
+    })
+    .await;
+    let progress = collected.progress.lock().unwrap();
+    assert_eq!(
+        progress.len(),
+        2,
+        "expected hard_delete + vacuum progress, got {progress:?}"
+    );
+    assert_eq!(progress[0].progress, 1.0);
+    assert_eq!(progress[0].total, Some(2.0));
+    assert_eq!(progress[1].progress, 2.0);
+    assert_eq!(progress[1].total, Some(2.0));
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn search_no_progress_without_embedder() -> anyhow::Result<()> {
     let db = Database::open_in_memory()?;
     let server = IgrisServer::with_embedder(db, None);

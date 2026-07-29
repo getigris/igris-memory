@@ -1337,22 +1337,57 @@ impl IgrisServer {
         name = "igris_export",
         description = "Export all memories and sessions as JSON. Use for backup or migration between machines."
     )]
-    fn igris_export(&self) -> String {
+    fn igris_export(&self, ctx: RequestContext<RoleServer>) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_export",
+            "start",
+            serde_json::json!({}),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
-        let result = match db.export_all() {
-            Ok(data) => to_json(&data),
+        let mut end_data = serde_json::json!({});
+        let result = match db.export_all_with_progress(|section, done, total| {
+            self.notify_progress(
+                &ctx,
+                done as f64,
+                Some(total as f64),
+                format!("exported {section}"),
+            );
+        }) {
+            Ok(data) => {
+                end_data = serde_json::json!({
+                    "sessions_count": data.sessions.len(),
+                    "entities_count": data.entities.len(),
+                    "edges_count": data.edges.len(),
+                    "observations_count": data.observations.len(),
+                });
+                to_json(&data)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_export", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_export",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_export",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_export", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_export",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -1361,8 +1396,19 @@ impl IgrisServer {
         name = "igris_import",
         description = "Import memories from a JSON export. Deduplicates by content hash — safe to run multiple times."
     )]
-    fn igris_import(&self, Parameters(args): Parameters<ImportArgs>) -> String {
+    fn igris_import(
+        &self,
+        Parameters(args): Parameters<ImportArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_import",
+            "start",
+            serde_json::json!({ "payload_size": args.data.len() }),
+        );
         let data: crate::models::ExportData = match serde_json::from_str(&args.data) {
             Ok(d) => d,
             Err(e) => return err_json(IgrisError::validation(format!("Invalid JSON: {e}"))),
@@ -1371,16 +1417,43 @@ impl IgrisServer {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
-        let result = match db.import_data(&data) {
-            Ok(r) => to_json(&r),
+        let mut end_data = serde_json::json!({});
+        let result = match db.import_data_with_progress(&data, |section, done, total| {
+            self.notify_progress(
+                &ctx,
+                done as f64,
+                Some(total as f64),
+                format!("imported {section}"),
+            );
+        }) {
+            Ok(r) => {
+                end_data = serde_json::json!({
+                    "imported_count": r.observations_imported,
+                    "deduped_count": r.observations_skipped,
+                    "entities_merged": r.entities_skipped,
+                });
+                to_json(&r)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_import", error = %e, "import error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_import",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_import",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_import", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_import",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -1389,22 +1462,59 @@ impl IgrisServer {
         name = "igris_purge",
         description = "Permanently remove old soft-deleted memories. Use to clean up completed plans and outdated entries. Specify days threshold (0 = purge all deleted). Irreversible."
     )]
-    fn igris_purge(&self, Parameters(args): Parameters<PurgeArgs>) -> String {
+    fn igris_purge(
+        &self,
+        Parameters(args): Parameters<PurgeArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_purge",
+            "start",
+            serde_json::json!({ "older_than_days": args.older_than_days }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
-        let result = match db.purge(args.older_than_days) {
-            Ok(r) => to_json(&r),
+        let mut end_data = serde_json::json!({});
+        let result = match db.purge_with_progress(args.older_than_days, |phase, done, total| {
+            self.notify_progress(
+                &ctx,
+                done as f64,
+                Some(total as f64),
+                match phase {
+                    "vacuum" => "vacuuming (may take a while)...".to_string(),
+                    other => format!("{other} done"),
+                },
+            );
+        }) {
+            Ok(r) => {
+                end_data = serde_json::json!({ "deleted_count": r.observations_purged });
+                to_json(&r)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_purge", error = %e, "purge error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_purge",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_purge",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_purge", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_purge",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
