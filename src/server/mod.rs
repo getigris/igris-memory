@@ -305,6 +305,13 @@ impl IgrisServer {
             }
             Err(e) => {
                 tracing::warn!(tool = "igris_get", error = %e, "not found or db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_get",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };

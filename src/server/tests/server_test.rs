@@ -169,10 +169,38 @@ async fn get_tool_baseline_logs_no_progress() -> anyhow::Result<()> {
     .serve(client_transport)
     .await?;
 
+    // First, save an observation to get a valid id
+    let save_response = client
+        .call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+            serde_json::json!({
+                "title": "test",
+                "content": "test content",
+            }),
+        )))
+        .await?;
+    assert_ne!(save_response.is_error, Some(true));
+
+    // Clear logs to start fresh for igris_get test
+    collected.logs.lock().unwrap().clear();
+
+    // Extract the observation id from the save response
+    // The content is a Vec<Annotated<RawContent>> where the text field contains JSON
+    let save_json = serde_json::to_value(&save_response.content)?;
+    let text_content = save_json
+        .as_array()
+        .and_then(|arr| arr.get(0))
+        .and_then(|obj| obj["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    let parsed_json: serde_json::Value = serde_json::from_str(text_content)?;
+    let obs_id = parsed_json["id"]
+        .as_i64()
+        .ok_or_else(|| anyhow::anyhow!("no id in parsed response"))?;
+
+    // Now test igris_get with the valid id (success path)
     client
         .call_tool(
             CallToolRequestParams::new("igris_get")
-                .with_arguments(obj(serde_json::json!({ "id": 999 }))),
+                .with_arguments(obj(serde_json::json!({ "id": obs_id }))),
         )
         .await?;
     wait_until(&signal, Duration::from_secs(2), || {
@@ -184,6 +212,10 @@ async fn get_tool_baseline_logs_no_progress() -> anyhow::Result<()> {
         logs.len(),
         2,
         "expected start+end log messages, got {logs:?}"
+    );
+    assert!(
+        logs.iter().all(|m| m.level == LoggingLevel::Info),
+        "all logs should be Info level for success path"
     );
     assert_eq!(collected.progress.lock().unwrap().len(), 0);
 
