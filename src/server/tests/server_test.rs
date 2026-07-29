@@ -3,7 +3,7 @@ use rmcp::model::{
     ProgressNotificationParam, SetLevelRequestParams,
 };
 use rmcp::service::NotificationContext;
-use rmcp::{ClientHandler, RoleClient, ServiceExt};
+use rmcp::{ClientHandler, Peer, RoleClient, ServiceExt};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
@@ -469,6 +469,501 @@ async fn search_no_progress_without_embedder() -> anyhow::Result<()> {
     })
     .await;
     assert_eq!(collected.progress.lock().unwrap().len(), 0);
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn import_reports_six_section_progress() -> anyhow::Result<()> {
+    let src_db = Database::open_in_memory()?;
+    src_db.save_observation("t", "c", "manual", None, "project", None, None, None)?;
+    let export_data = src_db.export_all()?;
+    let payload = serde_json::to_string(&export_data)?;
+
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_import")
+                .with_arguments(obj(serde_json::json!({ "data": payload }))),
+        )
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.progress.lock().unwrap().len() >= 6
+    })
+    .await;
+    {
+        let progress = collected.progress.lock().unwrap();
+        assert!(
+            progress.len() >= 6,
+            "expected at least 6 progress notifications (one per section), got {progress:?}"
+        );
+        let last = progress.last().expect("at least one progress notification");
+        assert_eq!(last.progress, 6.0);
+        assert_eq!(last.total, Some(6.0));
+    }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn import_invalid_json_closes_notification_bracket() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_import")
+                .with_arguments(obj(serde_json::json!({ "data": "not valid json" }))),
+        )
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= 3
+    })
+    .await;
+    {
+        let logs = collected.logs.lock().unwrap();
+        assert_eq!(
+            logs.len(),
+            3,
+            "expected start + Warning error + end (no dangling start), got {logs:?}"
+        );
+        assert_eq!(logs[0].level, LoggingLevel::Info);
+        assert_eq!(logs[1].level, LoggingLevel::Warning);
+        assert_eq!(logs[2].level, LoggingLevel::Info);
+        assert!(
+            logs.iter()
+                .all(|m| m.logger.as_deref() == Some("igris_import")),
+            "logger field mismatch: {logs:?}"
+        );
+    }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn entity_merge_stops_progress_on_failure() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let entity = db.upsert_entity("person", "Solo Entity", &[], None, "project")?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    // source_id == target_id is rejected by merge_entities before any progress
+    // past the initial "merging..." step — the failed merge must not report
+    // the terminal 2/2 "done" progress.
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_entity_merge").with_arguments(obj(
+                serde_json::json!({ "source_id": entity.id, "target_id": entity.id }),
+            )),
+        )
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= 3
+    })
+    .await;
+    {
+        let logs = collected.logs.lock().unwrap();
+        assert_eq!(
+            logs.len(),
+            3,
+            "expected start + Warning error + end, got {logs:?}"
+        );
+        assert_eq!(logs[1].level, LoggingLevel::Warning);
+    }
+    {
+        let progress = collected.progress.lock().unwrap();
+        assert_eq!(
+            progress.len(),
+            1,
+            "a failed merge must not emit the terminal 2/2 progress step, got {progress:?}"
+        );
+        assert_eq!(progress[0].progress, 1.0);
+        assert_eq!(progress[0].total, Some(2.0));
+    }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn notification_payloads_never_leak_full_content() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let marker_title = "MARKER_TITLE_9f3a7c2e";
+    let marker_content =
+        "MARKER_CONTENT_this_is_a_long_secret_body_that_must_never_appear_in_a_notification";
+
+    client
+        .call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+            serde_json::json!({ "title": marker_title, "content": marker_content }),
+        )))
+        .await?;
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= 2
+    })
+    .await;
+
+    let logs = collected.logs.lock().unwrap();
+    assert!(!logs.is_empty(), "expected at least one log message");
+    for msg in logs.iter() {
+        let serialized = serde_json::to_string(&msg.data)?;
+        assert!(
+            !serialized.contains(marker_title),
+            "notification leaked the raw title: {serialized}"
+        );
+        assert!(
+            !serialized.contains(marker_content),
+            "notification leaked the raw content: {serialized}"
+        );
+    }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+/// Calls `tool` with `args`, waits for exactly `expected_count` log messages to
+/// arrive, and asserts every one of them is Info-level and tagged with `tool`'s
+/// own name (no cross-tool contamination) before clearing the collected logs
+/// for the next call in a sequential coverage test.
+async fn call_and_assert_uniform(
+    peer: &Peer<RoleClient>,
+    signal: &Notify,
+    collected: &Collected,
+    tool: &str,
+    args: serde_json::Value,
+    expected_count: usize,
+) -> anyhow::Result<()> {
+    let response = peer
+        .call_tool(CallToolRequestParams::new(tool.to_string()).with_arguments(obj(args)))
+        .await?;
+    assert_ne!(
+        response.is_error,
+        Some(true),
+        "{tool} returned a protocol-level error"
+    );
+    wait_until(signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= expected_count
+    })
+    .await;
+    {
+        let logs = collected.logs.lock().unwrap();
+        assert_eq!(
+            logs.len(),
+            expected_count,
+            "{tool}: expected {expected_count} log messages, got {logs:?}"
+        );
+        assert!(
+            logs.iter().all(|m| m.logger.as_deref() == Some(tool)),
+            "{tool}: logger field mismatch in {logs:?}"
+        );
+        assert!(
+            logs.iter().all(|m| m.level == LoggingLevel::Info),
+            "{tool}: expected only Info-level messages on the success path, got {logs:?}"
+        );
+    }
+    collected.logs.lock().unwrap().clear();
+    Ok(())
+}
+
+/// The other protocol tests each exercise one tool's distinguishing behavior
+/// (progress brackets, level filtering, error paths). This test closes the
+/// remaining coverage gap: every one of the 18 tools not otherwise covered by
+/// name in this file gets at least one real end-to-end call, proving its
+/// `ctx`/`notify_log` wiring actually fires at runtime (not just verified by
+/// code review) and that no tool's notifications bleed into another's.
+#[tokio::test]
+async fn remaining_tools_emit_consistent_notifications() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let entity_a = db.upsert_entity("person", "Alice Seed", &[], None, "project")?;
+    let entity_b = db.upsert_entity("person", "Bob Seed", &[], None, "project")?;
+    let entity_c = db.upsert_entity("person", "Dave ToDelete", &[], None, "project")?;
+    db.upsert_edge(entity_a.id, entity_b.id, "seed_link")?;
+    let obs1 = db.save_observation(
+        "Obs One",
+        "content one",
+        "manual",
+        None,
+        "project",
+        None,
+        None,
+        None,
+    )?;
+    let obs2 = db.save_observation(
+        "Obs Two",
+        "content two",
+        "manual",
+        None,
+        "project",
+        None,
+        None,
+        None,
+    )?;
+
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+    let peer = client.peer();
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_session_summary",
+        serde_json::json!({ "content": "summary text", "project": "project" }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_update",
+        serde_json::json!({ "id": obs1.id, "title": "Updated title" }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_context",
+        serde_json::json!({}),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_stats",
+        serde_json::json!({}),
+        1,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_timeline",
+        serde_json::json!({ "observation_id": obs1.id }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_suggest_topic_key",
+        serde_json::json!({ "type": "decision", "title": "t", "content": "c" }),
+        1,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_entity_upsert",
+        serde_json::json!({ "kind": "person", "name": "Carol New" }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_entity_get",
+        serde_json::json!({ "id": entity_a.id }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_entity_update",
+        serde_json::json!({ "id": entity_a.id, "tier": 2 }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_entity_link",
+        serde_json::json!({ "src_id": entity_a.id, "dst_id": entity_b.id, "relation": "collaborates" }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_entity_neighbors",
+        serde_json::json!({ "entity_id": entity_a.id }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_entity_timeline",
+        serde_json::json!({ "entity_id": entity_a.id }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_brief",
+        serde_json::json!({ "id": entity_a.id }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_entity_search",
+        serde_json::json!({ "query": "Alice" }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_entity_list",
+        serde_json::json!({}),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_entity_unlink",
+        serde_json::json!({ "src_id": entity_a.id, "dst_id": entity_b.id, "relation": "collaborates" }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_entity_delete",
+        serde_json::json!({ "id": entity_c.id }),
+        2,
+    )
+    .await?;
+
+    call_and_assert_uniform(
+        peer,
+        &signal,
+        &collected,
+        "igris_delete",
+        serde_json::json!({ "id": obs2.id }),
+        2,
+    )
+    .await?;
 
     client.cancel().await?;
     Ok(())
