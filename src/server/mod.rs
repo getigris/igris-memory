@@ -645,12 +645,29 @@ impl IgrisServer {
         name = "igris_entity_upsert",
         description = "Create or update a first-class entity (person, company, project, concept, ...). Idempotent by name within a project+scope: calling again with the same name updates in place and registers new aliases. Use this to declare the who/what your memories are about."
     )]
-    fn igris_entity_upsert(&self, Parameters(args): Parameters<EntityUpsertArgs>) -> String {
+    fn igris_entity_upsert(
+        &self,
+        Parameters(args): Parameters<EntityUpsertArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_upsert",
+            "start",
+            serde_json::json!({
+                "kind": args.kind,
+                "aliases_count": args.aliases.as_ref().map(|a| a.len()).unwrap_or(0),
+                "project": args.project,
+                "scope": args.scope,
+            }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.upsert_entity(
             &args.kind,
             &args.name,
@@ -658,15 +675,30 @@ impl IgrisServer {
             args.project.as_deref(),
             &args.scope,
         ) {
-            Ok(entity) => to_json(&entity),
+            Ok(entity) => {
+                end_data = serde_json::json!({ "id": entity.id, "slug": entity.slug });
+                to_json(&entity)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_upsert", error = %e, "validation/db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_upsert",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_upsert",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_upsert", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_upsert",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -675,8 +707,19 @@ impl IgrisServer {
         name = "igris_entity_get",
         description = "Fetch a single entity by id or by slug. When using slug, pass the same project+scope the entity was created under."
     )]
-    fn igris_entity_get(&self, Parameters(args): Parameters<EntityGetArgs>) -> String {
+    fn igris_entity_get(
+        &self,
+        Parameters(args): Parameters<EntityGetArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_get",
+            "start",
+            serde_json::json!({ "id": args.id, "slug": args.slug }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
@@ -688,16 +731,32 @@ impl IgrisServer {
                 "igris_entity_get requires either 'id' or 'slug'".to_string(),
             )),
         };
+        let mut end_data = serde_json::json!({ "found": false });
         let result = match lookup {
-            Ok(entity) => to_json(&entity),
+            Ok(entity) => {
+                end_data = serde_json::json!({ "found": true });
+                to_json(&entity)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_get", error = %e, "not found or db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_get",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_get",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_get", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_get",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -706,12 +765,37 @@ impl IgrisServer {
         name = "igris_entity_update",
         description = "Partially update an entity's mutable fields by id — kind, tier, salience, and/or additional aliases. The slug (stable identity) never changes. Requires at least one field to change. Complements igris_entity_upsert, which is keyed by name."
     )]
-    fn igris_entity_update(&self, Parameters(args): Parameters<EntityUpdateArgs>) -> String {
+    fn igris_entity_update(
+        &self,
+        Parameters(args): Parameters<EntityUpdateArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        let mut fields_changed: Vec<&str> = Vec::new();
+        if args.kind.is_some() {
+            fields_changed.push("kind");
+        }
+        if args.tier.is_some() {
+            fields_changed.push("tier");
+        }
+        if args.salience.is_some() {
+            fields_changed.push("salience");
+        }
+        if args.add_aliases.is_some() {
+            fields_changed.push("add_aliases");
+        }
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_update",
+            "start",
+            serde_json::json!({ "id": args.id, "fields_changed": fields_changed }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.update_entity(
             args.id,
             args.kind.as_deref(),
@@ -719,15 +803,30 @@ impl IgrisServer {
             args.salience,
             args.add_aliases.as_deref().unwrap_or(&[]),
         ) {
-            Ok(entity) => to_json(&entity),
+            Ok(entity) => {
+                end_data = serde_json::json!({ "id": entity.id });
+                to_json(&entity)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_update", error = %e, "validation/db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_update",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_update",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_update", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_update",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -736,22 +835,49 @@ impl IgrisServer {
         name = "igris_entity_link",
         description = "Create or strengthen a typed relation between two entities (by id), e.g. 'works_at', 'founded'. Idempotent: repeating the same link increments its evidence."
     )]
-    fn igris_entity_link(&self, Parameters(args): Parameters<EntityLinkArgs>) -> String {
+    fn igris_entity_link(
+        &self,
+        Parameters(args): Parameters<EntityLinkArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_link",
+            "start",
+            serde_json::json!({ "src_id": args.src_id, "dst_id": args.dst_id, "relation": args.relation }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.upsert_edge(args.src_id, args.dst_id, &args.relation) {
-            Ok(edge) => to_json(&edge),
+            Ok(edge) => {
+                end_data = serde_json::json!({ "edge_id": edge.id, "evidence_count": edge.evidence_count });
+                to_json(&edge)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_link", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_link",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_link",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_link", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_link",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -760,22 +886,49 @@ impl IgrisServer {
         name = "igris_entity_neighbors",
         description = "List an entity's graph neighbors (connected entities + the relation), strongest connections first."
     )]
-    fn igris_entity_neighbors(&self, Parameters(args): Parameters<EntityNeighborsArgs>) -> String {
+    fn igris_entity_neighbors(
+        &self,
+        Parameters(args): Parameters<EntityNeighborsArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_neighbors",
+            "start",
+            serde_json::json!({ "entity_id": args.entity_id, "limit": args.limit }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.entity_neighbors(args.entity_id, args.limit.unwrap_or(20)) {
-            Ok(neighbors) => to_json(&neighbors),
+            Ok(neighbors) => {
+                end_data = serde_json::json!({ "results_count": neighbors.len() });
+                to_json(&neighbors)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_neighbors", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_neighbors",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_neighbors",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_neighbors", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_neighbors",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -784,22 +937,49 @@ impl IgrisServer {
         name = "igris_entity_timeline",
         description = "List the observations that mention an entity, most recent first — the entity's chronological history."
     )]
-    fn igris_entity_timeline(&self, Parameters(args): Parameters<EntityTimelineArgs>) -> String {
+    fn igris_entity_timeline(
+        &self,
+        Parameters(args): Parameters<EntityTimelineArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_timeline",
+            "start",
+            serde_json::json!({ "entity_id": args.entity_id, "limit": args.limit }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.entity_timeline(args.entity_id, args.limit.unwrap_or(20)) {
-            Ok(obs) => to_json(&obs),
+            Ok(obs) => {
+                end_data = serde_json::json!({ "results_count": obs.len() });
+                to_json(&obs)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_timeline", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_timeline",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_timeline",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_timeline", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_timeline",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -808,8 +988,19 @@ impl IgrisServer {
         name = "igris_brief",
         description = "Get a one-call brief for an entity (by id or slug): a freshly compiled summary, its strongest connections, and its recent mentions with citations. Use this to load everything known about a person/company/project at once."
     )]
-    fn igris_brief(&self, Parameters(args): Parameters<BriefArgs>) -> String {
+    fn igris_brief(
+        &self,
+        Parameters(args): Parameters<BriefArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_brief",
+            "start",
+            serde_json::json!({ "id": args.id, "slug": args.slug }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
@@ -823,16 +1014,36 @@ impl IgrisServer {
                 "igris_brief requires either 'id' or 'slug'".to_string(),
             )),
         };
+        let mut end_data = serde_json::json!({});
         let result = match entity_id.and_then(|id| db.entity_brief(id)) {
-            Ok(brief) => to_json(&brief),
+            Ok(brief) => {
+                end_data = serde_json::json!({
+                    "entity_id": brief.entity.id,
+                    "connections_count": brief.neighbors.len(),
+                    "mentions_count": brief.recent.len(),
+                });
+                to_json(&brief)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_brief", error = %e, "not found or db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_brief",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_brief",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_brief", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_brief",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -841,12 +1052,27 @@ impl IgrisServer {
         name = "igris_entity_search",
         description = "Find entities by name or alias (substring, case-insensitive), optionally filtered by kind. Use to discover an entity's id/slug before igris_brief, igris_entity_neighbors, etc."
     )]
-    fn igris_entity_search(&self, Parameters(args): Parameters<EntitySearchArgs>) -> String {
+    fn igris_entity_search(
+        &self,
+        Parameters(args): Parameters<EntitySearchArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_search",
+            "start",
+            serde_json::json!({
+                "query_preview": args.query.chars().take(120).collect::<String>(),
+                "kind": args.kind,
+            }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.search_entities(
             &args.query,
             args.kind.as_deref(),
@@ -854,15 +1080,30 @@ impl IgrisServer {
             args.scope.as_deref(),
             args.limit.unwrap_or(20),
         ) {
-            Ok(entities) => to_json(&entities),
+            Ok(entities) => {
+                end_data = serde_json::json!({ "results_count": entities.len() });
+                to_json(&entities)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_search", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_search",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_search",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_search", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_search",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -871,27 +1112,59 @@ impl IgrisServer {
         name = "igris_entity_list",
         description = "Browse entities, most recently updated first, optionally filtered by kind/project/scope. Use at session start or to survey what the brain knows."
     )]
-    fn igris_entity_list(&self, Parameters(args): Parameters<EntityListArgs>) -> String {
+    fn igris_entity_list(
+        &self,
+        Parameters(args): Parameters<EntityListArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_list",
+            "start",
+            serde_json::json!({
+                "kind": args.kind,
+                "project": args.project,
+                "scope": args.scope,
+                "limit": args.limit,
+            }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.list_entities(
             args.kind.as_deref(),
             args.project.as_deref(),
             args.scope.as_deref(),
             args.limit.unwrap_or(20),
         ) {
-            Ok(entities) => to_json(&entities),
+            Ok(entities) => {
+                end_data = serde_json::json!({ "results_count": entities.len() });
+                to_json(&entities)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_list", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_list",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_list",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_list", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_list",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -900,26 +1173,57 @@ impl IgrisServer {
         name = "igris_entity_delete",
         description = "Soft-delete an entity by id. It is hidden from search/list/get/neighbors but data is retained."
     )]
-    fn igris_entity_delete(&self, Parameters(args): Parameters<EntityDeleteArgs>) -> String {
+    fn igris_entity_delete(
+        &self,
+        Parameters(args): Parameters<EntityDeleteArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_delete",
+            "start",
+            serde_json::json!({ "id": args.id }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.delete_entity(args.id) {
-            Ok(true) => r#"{"deleted": true}"#.to_string(),
-            Ok(false) => err_json(IgrisError::not_found(format!(
-                "Entity {} not found or already deleted",
-                args.id
-            ))),
+            Ok(true) => {
+                end_data = serde_json::json!({ "deleted": true });
+                r#"{"deleted": true}"#.to_string()
+            }
+            Ok(false) => {
+                end_data = serde_json::json!({ "deleted": false });
+                err_json(IgrisError::not_found(format!(
+                    "Entity {} not found or already deleted",
+                    args.id
+                )))
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_delete", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_delete",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
+                end_data = serde_json::json!({ "deleted": false });
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_delete",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_delete", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_delete",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -928,22 +1232,49 @@ impl IgrisServer {
         name = "igris_entity_unlink",
         description = "Remove a typed relation between two entities (either direction). Returns how many edges were removed."
     )]
-    fn igris_entity_unlink(&self, Parameters(args): Parameters<EntityUnlinkArgs>) -> String {
+    fn igris_entity_unlink(
+        &self,
+        Parameters(args): Parameters<EntityUnlinkArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_unlink",
+            "start",
+            serde_json::json!({ "src_id": args.src_id, "dst_id": args.dst_id, "relation": args.relation }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        let mut end_data = serde_json::json!({});
         let result = match db.unlink_entities(args.src_id, args.dst_id, &args.relation) {
-            Ok(n) => serde_json::json!({ "removed": n }).to_string(),
+            Ok(n) => {
+                end_data = serde_json::json!({ "removed_count": n });
+                serde_json::json!({ "removed": n }).to_string()
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_unlink", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_unlink",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_unlink",
-            duration_ms = start.elapsed().as_millis() as u64
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_unlink", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_unlink",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }
@@ -952,22 +1283,52 @@ impl IgrisServer {
         name = "igris_entity_merge",
         description = "Fold a duplicate entity (source) into another (target): moves source's aliases, mentions, and edges to target, then soft-deletes source. Target keeps its identity (id/slug)."
     )]
-    fn igris_entity_merge(&self, Parameters(args): Parameters<EntityMergeArgs>) -> String {
+    fn igris_entity_merge(
+        &self,
+        Parameters(args): Parameters<EntityMergeArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
         let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_merge",
+            "start",
+            serde_json::json!({ "source_id": args.source_id, "target_id": args.target_id }),
+        );
         let db = match lock_db(&self.db) {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
+        self.notify_progress(&ctx, 1.0, Some(2.0), "merging...");
+        let mut end_data = serde_json::json!({});
         let result = match db.merge_entities(args.source_id, args.target_id) {
-            Ok(entity) => to_json(&entity),
+            Ok(entity) => {
+                end_data =
+                    serde_json::json!({ "target_id": entity.id, "target_slug": entity.slug });
+                to_json(&entity)
+            }
             Err(e) => {
                 tracing::warn!(tool = "igris_entity_merge", error = %e, "validation/db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_entity_merge",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
                 err_json(e)
             }
         };
-        tracing::info!(
-            tool = "igris_entity_merge",
-            duration_ms = start.elapsed().as_millis() as u64
+        self.notify_progress(&ctx, 2.0, Some(2.0), "done");
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_entity_merge", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_entity_merge",
+            "end",
+            notify::with_duration(end_data, duration_ms),
         );
         result
     }

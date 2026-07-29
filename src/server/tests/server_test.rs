@@ -10,6 +10,7 @@ use tokio::sync::Notify;
 
 use crate::db::Database;
 use crate::server::IgrisServer;
+use crate::store::BrainStore;
 
 #[derive(Clone, Default)]
 struct Collected {
@@ -144,6 +145,58 @@ async fn logs_and_progress_notifications() -> anyhow::Result<()> {
         );
         assert_eq!(logs[0].level, LoggingLevel::Warning);
     }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn entity_merge_progress_bracket() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    db.upsert_entity("person", "Source Person", &[], None, "project")?;
+    db.upsert_entity("person", "Target Person", &[], None, "project")?;
+    let source = db.get_entity_by_slug("source-person", None, "project")?;
+    let target = db.get_entity_by_slug("target-person", None, "project")?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_entity_merge").with_arguments(obj(
+                serde_json::json!({
+                    "source_id": source.id,
+                    "target_id": target.id,
+                }),
+            )),
+        )
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.progress.lock().unwrap().len() >= 2
+    })
+    .await;
+    let progress = collected.progress.lock().unwrap();
+    assert_eq!(
+        progress.len(),
+        2,
+        "expected a 2-step progress bracket, got {progress:?}"
+    );
+    assert_eq!(progress[1].progress, 2.0);
+    assert_eq!(progress[1].total, Some(2.0));
 
     client.cancel().await?;
     Ok(())
