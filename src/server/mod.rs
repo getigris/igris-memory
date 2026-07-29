@@ -1,4 +1,5 @@
 pub mod args;
+mod notify;
 
 use args::*;
 
@@ -8,11 +9,13 @@ use crate::errors::IgrisError;
 use crate::store::BrainStore;
 use crate::topic;
 use rmcp::{
-    ServerHandler,
+    RoleServer, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
+    service::RequestContext,
     tool, tool_handler, tool_router,
 };
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -37,6 +40,7 @@ fn err_json(e: IgrisError) -> String {
 pub struct IgrisServer {
     db: Arc<Mutex<Database>>,
     embedder: Option<Arc<dyn Embedder>>,
+    log_level: Arc<Mutex<LoggingLevel>>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -72,6 +76,7 @@ impl IgrisServer {
         Self {
             db: Arc::new(Mutex::new(db)),
             embedder,
+            log_level: Arc::new(Mutex::new(LoggingLevel::Info)),
             tool_router: Self::tool_router(),
         }
     }
@@ -822,7 +827,12 @@ impl IgrisServer {
 #[tool_handler]
 impl ServerHandler for IgrisServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_logging()
+                .build(),
+        )
             .with_instructions(
                 "You are connected to Igris Memory, a persistent memory store that survives across sessions \
                  and works across different AI providers (Claude, ChatGPT, Cursor, etc.).\n\n\
@@ -859,5 +869,19 @@ impl ServerHandler for IgrisServer {
                  - Discover entities with igris_entity_search (by name/alias) or igris_entity_list (browse); you don't need to know ids in advance.\n\
                  - Load everything about one entity with igris_brief; see its history with igris_entity_timeline and its connections with igris_entity_neighbors.",
             )
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn set_level(
+        &self,
+        request: SetLevelRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<(), rmcp::ErrorData>> + Send + '_ {
+        async move {
+            if let Ok(mut level) = self.log_level.lock() {
+                *level = request.level;
+            }
+            Ok(())
+        }
     }
 }
