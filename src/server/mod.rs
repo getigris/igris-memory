@@ -8,6 +8,7 @@ use crate::embed::Embedder;
 use crate::errors::IgrisError;
 use crate::store::BrainStore;
 use crate::topic;
+use notify::NotifyJob;
 use rmcp::{
     RoleServer, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -18,6 +19,7 @@ use rmcp::{
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use tokio::sync::mpsc;
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -41,14 +43,26 @@ pub struct IgrisServer {
     db: Arc<Mutex<Database>>,
     embedder: Option<Arc<dyn Embedder>>,
     log_level: Arc<Mutex<LoggingLevel>>,
+    /// Sender half of the single-consumer notification channel. `notify_log`/
+    /// `notify_progress` enqueue jobs here; one long-lived task (spawned in
+    /// `with_embedder`) drains them in order and awaits each `peer.notify_*`
+    /// call before processing the next, guaranteeing FIFO delivery per server
+    /// instance regardless of which worker thread produced the job.
+    notify_tx: mpsc::UnboundedSender<NotifyJob>,
     tool_router: ToolRouter<Self>,
 }
 
 impl std::fmt::Debug for IgrisServer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let log_level = self
+            .log_level
+            .lock()
+            .map(|l| *l)
+            .unwrap_or_else(|e| *e.into_inner());
         f.debug_struct("IgrisServer")
             .field("db", &self.db)
             .field("embedder", &self.embedder.as_ref().map(|e| e.model()))
+            .field("log_level", &log_level)
             .field("tool_router", &self.tool_router)
             .finish()
     }
@@ -73,10 +87,28 @@ impl IgrisServer {
                 "embedder configured"
             );
         }
+        let (notify_tx, mut notify_rx) = mpsc::unbounded_channel::<NotifyJob>();
+        tokio::spawn(async move {
+            while let Some(job) = notify_rx.recv().await {
+                match job {
+                    NotifyJob::Log(peer, params) => {
+                        if let Err(e) = peer.notify_logging_message(params).await {
+                            tracing::debug!(error = %e, "log notification not delivered");
+                        }
+                    }
+                    NotifyJob::Progress(peer, params) => {
+                        if let Err(e) = peer.notify_progress(params).await {
+                            tracing::debug!(error = %e, "progress notification not delivered");
+                        }
+                    }
+                }
+            }
+        });
         Self {
             db: Arc::new(Mutex::new(db)),
             embedder,
             log_level: Arc::new(Mutex::new(LoggingLevel::Info)),
+            notify_tx,
             tool_router: Self::tool_router(),
         }
     }
@@ -533,12 +565,9 @@ impl IgrisServer {
             Ok(db) => db,
             Err(e) => return err_json(e),
         };
-        let mut end_data = serde_json::json!({});
+        let end_data = serde_json::json!({});
         let result = match db.stats() {
-            Ok(stats) => {
-                end_data = serde_json::json!({});
-                to_json(&stats)
-            }
+            Ok(stats) => to_json(&stats),
             Err(e) => {
                 tracing::warn!(tool = "igris_stats", error = %e, "db error");
                 self.notify_log(
@@ -1306,6 +1335,7 @@ impl IgrisServer {
             Ok(entity) => {
                 end_data =
                     serde_json::json!({ "target_id": entity.id, "target_slug": entity.slug });
+                self.notify_progress(&ctx, 2.0, Some(2.0), "done");
                 to_json(&entity)
             }
             Err(e) => {
@@ -1320,7 +1350,6 @@ impl IgrisServer {
                 err_json(e)
             }
         };
-        self.notify_progress(&ctx, 2.0, Some(2.0), "done");
         let duration_ms = start.elapsed().as_millis() as u64;
         tracing::info!(tool = "igris_entity_merge", duration_ms);
         self.notify_log(
@@ -1411,7 +1440,27 @@ impl IgrisServer {
         );
         let data: crate::models::ExportData = match serde_json::from_str(&args.data) {
             Ok(d) => d,
-            Err(e) => return err_json(IgrisError::validation(format!("Invalid JSON: {e}"))),
+            Err(e) => {
+                let err = IgrisError::validation(format!("Invalid JSON: {e}"));
+                tracing::warn!(tool = "igris_import", error = %err, "invalid JSON payload");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_import",
+                    "error",
+                    serde_json::json!({ "error": err.to_string() }),
+                );
+                let duration_ms = start.elapsed().as_millis() as u64;
+                tracing::info!(tool = "igris_import", duration_ms);
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Info,
+                    "igris_import",
+                    "end",
+                    notify::with_duration(serde_json::json!({}), duration_ms),
+                );
+                return err_json(err);
+            }
         };
         let db = match lock_db(&self.db) {
             Ok(db) => db,
@@ -1485,10 +1534,7 @@ impl IgrisServer {
                 &ctx,
                 done as f64,
                 Some(total as f64),
-                match phase {
-                    "vacuum" => "vacuuming (may take a while)...".to_string(),
-                    other => format!("{other} done"),
-                },
+                format!("{phase} done"),
             );
         }) {
             Ok(r) => {
@@ -1727,8 +1773,11 @@ impl ServerHandler for IgrisServer {
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<(), rmcp::ErrorData>> + Send + '_ {
         async move {
-            if let Ok(mut level) = self.log_level.lock() {
-                *level = request.level;
+            match self.log_level.lock() {
+                Ok(mut level) => *level = request.level,
+                Err(e) => {
+                    tracing::warn!(error = %e, "log_level mutex poisoned; requested level not applied");
+                }
             }
             Ok(())
         }

@@ -43,9 +43,9 @@ impl ClientHandler for TestClient {
     }
 }
 
-/// Notifications are fired via `tokio::spawn` on the server side (best-effort,
-/// never awaited by the tool), so poll against `signal` up to `timeout` instead
-/// of racing the tool's return value.
+/// Notifications are delivered by the server's single drain task (best-effort,
+/// never awaited by the tool that enqueued them), so poll against `signal` up
+/// to `timeout` instead of racing the tool's return value.
 async fn wait_until(signal: &Notify, timeout: Duration, cond: impl Fn() -> bool) {
     let deadline = tokio::time::Instant::now() + timeout;
     while !cond() {
@@ -195,6 +195,8 @@ async fn entity_merge_progress_bracket() -> anyhow::Result<()> {
         2,
         "expected a 2-step progress bracket, got {progress:?}"
     );
+    assert_eq!(progress[0].progress, 1.0);
+    assert_eq!(progress[0].total, Some(2.0));
     assert_eq!(progress[1].progress, 2.0);
     assert_eq!(progress[1].total, Some(2.0));
 
@@ -232,6 +234,14 @@ async fn get_tool_baseline_logs_no_progress() -> anyhow::Result<()> {
         )))
         .await?;
     assert_ne!(save_response.is_error, Some(true));
+
+    // Wait for igris_save's own start/end notifications to land before
+    // clearing — otherwise a slow delivery can leak into the igris_get
+    // assertions below and make this test racy.
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= 2
+    })
+    .await;
 
     // Clear logs to start fresh for igris_get test
     collected.logs.lock().unwrap().clear();
@@ -379,6 +389,50 @@ async fn purge_reports_two_phase_progress() -> anyhow::Result<()> {
     assert_eq!(progress[0].total, Some(2.0));
     assert_eq!(progress[1].progress, 2.0);
     assert_eq!(progress[1].total, Some(2.0));
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn export_reports_six_section_progress() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    db.save_observation("t", "c", "manual", None, "project", None, None, None)?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let response = client
+        .call_tool(CallToolRequestParams::new("igris_export"))
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.progress.lock().unwrap().len() >= 6
+    })
+    .await;
+    {
+        let progress = collected.progress.lock().unwrap();
+        assert!(
+            progress.len() >= 6,
+            "expected at least 6 progress notifications (one per section), got {progress:?}"
+        );
+        let last = progress.last().expect("at least one progress notification");
+        assert_eq!(last.progress, 6.0);
+        assert_eq!(last.total, Some(6.0));
+    }
 
     client.cancel().await?;
     Ok(())

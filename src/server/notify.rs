@@ -5,10 +5,19 @@ use serde_json::{Map, Value};
 
 use super::IgrisServer;
 
+/// A queued notification, dispatched in FIFO order by the single drain task
+/// owned by an `IgrisServer` instance. Using one channel + one task (instead
+/// of an independent `tokio::spawn` per notification) guarantees delivery
+/// order matches call order, which the MCP spec requires for `progress`
+/// values on a given token to increase monotonically.
+pub(crate) enum NotifyJob {
+    Log(rmcp::Peer<RoleServer>, LoggingMessageNotificationParam),
+    Progress(rmcp::Peer<RoleServer>, ProgressNotificationParam),
+}
+
 /// Total ordering over `LoggingLevel` by severity. The MCP spec's `LoggingLevel`
 /// doesn't derive `Ord`, so this ranks it for comparison against the configured
 /// minimum level (`logging/setLevel`).
-#[allow(dead_code)]
 fn level_rank(level: LoggingLevel) -> u8 {
     match level {
         LoggingLevel::Debug => 0,
@@ -24,7 +33,6 @@ fn level_rank(level: LoggingLevel) -> u8 {
 
 /// Inserts `duration_ms` into an object-shaped notification payload. No-op if
 /// `data` isn't an object (shouldn't happen given how callers build it).
-#[allow(dead_code)]
 pub(crate) fn with_duration(mut data: Value, duration_ms: u64) -> Value {
     if let Value::Object(ref mut map) = data {
         map.insert("duration_ms".to_string(), Value::from(duration_ms));
@@ -35,10 +43,11 @@ pub(crate) fn with_duration(mut data: Value, duration_ms: u64) -> Value {
 impl IgrisServer {
     /// Best-effort, non-blocking `notifications/message` send. Filtered against
     /// the client-configured minimum level (default `Info`). Never awaited by
-    /// the caller — a tool's return latency is unaffected. Delivery failures
-    /// (client gone, transport closed) are logged to stderr via
-    /// `tracing::debug!` and otherwise ignored.
-    #[allow(dead_code)]
+    /// the caller — a tool's return latency is unaffected. The job is handed to
+    /// the server's single drain task, which delivers it in FIFO order relative
+    /// to every other queued notification; delivery failures (client gone,
+    /// transport closed) are logged to stderr via `tracing::debug!` and
+    /// otherwise ignored.
     pub(crate) fn notify_log(
         &self,
         ctx: &RequestContext<RoleServer>,
@@ -64,23 +73,20 @@ impl IgrisServer {
             }
         };
         payload.insert("phase".to_string(), Value::String(phase.to_string()));
-        let peer = ctx.peer.clone();
-        let tool = tool.to_string();
         let params = LoggingMessageNotificationParam {
             level,
-            logger: Some(tool.clone()),
+            logger: Some(tool.to_string()),
             data: Value::Object(payload),
         };
-        tokio::spawn(async move {
-            if let Err(e) = peer.notify_logging_message(params).await {
-                tracing::debug!(tool, error = %e, "log notification not delivered");
-            }
-        });
+        let _ = self
+            .notify_tx
+            .send(NotifyJob::Log(ctx.peer.clone(), params));
     }
 
     /// Best-effort, non-blocking `notifications/progress` send. No-op if the
     /// incoming request didn't carry a `progressToken` (the client opted out).
-    #[allow(dead_code)]
+    /// Like `notify_log`, this hands the job to the server's single drain task
+    /// for FIFO delivery.
     pub(crate) fn notify_progress(
         &self,
         ctx: &RequestContext<RoleServer>,
@@ -91,18 +97,15 @@ impl IgrisServer {
         let Some(progress_token) = ctx.meta.get_progress_token() else {
             return;
         };
-        let peer = ctx.peer.clone();
         let params = ProgressNotificationParam {
             progress_token,
             progress,
             total,
             message: Some(message.into()),
         };
-        tokio::spawn(async move {
-            if let Err(e) = peer.notify_progress(params).await {
-                tracing::debug!(error = %e, "progress notification not delivered");
-            }
-        });
+        let _ = self
+            .notify_tx
+            .send(NotifyJob::Progress(ctx.peer.clone(), params));
     }
 }
 
