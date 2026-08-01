@@ -1818,6 +1818,68 @@ impl IgrisServer {
         );
         result
     }
+
+    #[tool(
+        name = "igris_code_neighbors",
+        description = "Directly connected code nodes (imports/calls/etc.), with resolution confidence and external_boundary on each edge. Absence of a 'static' edge means the analyzer couldn't resolve a caller — not proof one doesn't exist (dynamic dispatch/reflection are blind spots)."
+    )]
+    fn igris_code_neighbors(
+        &self,
+        Parameters(args): Parameters<CodeNeighborsArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
+        let start = Instant::now();
+        let hops = args.hops.unwrap_or(1);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_code_neighbors",
+            "start",
+            serde_json::json!({
+                "node_type": args.node_type,
+                "node_id": args.node_id,
+                "hops": hops,
+            }),
+        );
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let mut end_data = serde_json::json!({});
+        let result = match db.code_neighbors(
+            &args.node_type,
+            args.node_id,
+            hops,
+            args.direction.as_deref().unwrap_or("both"),
+            args.relation.as_deref(),
+        ) {
+            Ok(neighbors) => {
+                end_data = serde_json::json!({ "results_count": neighbors.len() });
+                to_json(&neighbors)
+            }
+            Err(e) => {
+                tracing::warn!(tool = "igris_code_neighbors", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_code_neighbors",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
+                err_json(e)
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_code_neighbors", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_code_neighbors",
+            "end",
+            notify::with_duration(end_data, duration_ms),
+        );
+        result
+    }
 }
 
 #[tool_handler]

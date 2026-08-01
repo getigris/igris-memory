@@ -366,6 +366,119 @@ async fn code_search_returns_indexed_symbol() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn code_neighbors_returns_connected_symbol_and_edge() -> anyhow::Result<()> {
+    use crate::codegraph::{ExtractedEdge, ExtractedSymbol};
+
+    let db = Database::open_in_memory()?;
+
+    // Seed via the DB layer directly (same fixture shape as Task 7's
+    // `replace_symbols_and_edges_resolves_call_within_same_project`), rather
+    // than through the real tree-sitter indexer: the extractor never sets
+    // `src_qualified_name`, so indexer-produced `calls` edges always source
+    // from the file node, not a symbol — this test needs a genuine
+    // symbol-to-symbol edge to exercise `code_neighbors` meaningfully.
+    let file = db.upsert_code_file("code-neighbors-test", "/repo", "src/lib.rs", "rust", "h1")?;
+    let symbols = vec![
+        ExtractedSymbol {
+            kind: "function".into(),
+            name: "helper".into(),
+            qualified_name: "helper".into(),
+            start_line: 1,
+            end_line: 1,
+        },
+        ExtractedSymbol {
+            kind: "function".into(),
+            name: "main".into(),
+            qualified_name: "main".into(),
+            start_line: 3,
+            end_line: 5,
+        },
+    ];
+    let edges = vec![ExtractedEdge {
+        relation: "calls".into(),
+        src_qualified_name: Some("main".into()),
+        dst_name: "helper".into(),
+        resolution: "heuristic".into(),
+        external_boundary: false,
+    }];
+    db.replace_symbols_and_edges_for_file(file.id, &symbols, &edges)?;
+
+    let nodes = db.search_code_nodes("helper", None, None, Some("code-neighbors-test"), 10)?;
+    assert_eq!(nodes.len(), 1, "expected exactly one `helper` symbol");
+    let crate::models::CodeNode::Symbol(helper_symbol) = &nodes[0] else {
+        anyhow::bail!("expected a symbol node");
+    };
+    let helper_id = helper_symbol.id;
+
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_code_neighbors").with_arguments(obj(
+                serde_json::json!({
+                    "node_id": helper_id,
+                    "node_type": "symbol",
+                    "direction": "in",
+                }),
+            )),
+        )
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+
+    let response_json = serde_json::to_value(&response.content)?;
+    let text_content = response_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    assert!(
+        text_content.contains("\"name\": \"main\""),
+        "expected the calling `main` symbol in response, got {text_content}"
+    );
+    assert!(
+        text_content.contains("\"relation\": \"calls\""),
+        "expected the `calls` relation in response, got {text_content}"
+    );
+    assert!(
+        text_content.contains("\"resolution\": \"heuristic\""),
+        "expected the edge's resolution field in response, got {text_content}"
+    );
+
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= 2
+    })
+    .await;
+    {
+        let logs = collected.logs.lock().unwrap();
+        assert_eq!(
+            logs.len(),
+            2,
+            "expected start+end log messages, got {logs:?}"
+        );
+        assert!(logs.iter().all(|m| m.level == LoggingLevel::Info));
+        assert_eq!(collected.progress.lock().unwrap().len(), 0);
+    }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn save_and_search_progress_only_with_embedder() -> anyhow::Result<()> {
     let db = Database::open_in_memory()?;
     let embedder = Arc::new(crate::embed::HashEmbedder::new(32));

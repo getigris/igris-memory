@@ -319,6 +319,22 @@ pub struct CodeSearchArgs {
     pub limit: Option<i64>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CodeNeighborsArgs {
+    #[schemars(description = "Node id to inspect.")]
+    pub node_id: i64,
+    #[schemars(description = "Node type: 'file' or 'symbol'.")]
+    pub node_type: String,
+    #[schemars(description = "How many hops to traverse (default 1).")]
+    pub hops: Option<i64>,
+    #[schemars(description = "Direction: 'in', 'out', or 'both' (default 'both').")]
+    pub direction: Option<String>,
+    #[schemars(
+        description = "Filter by relation: imports, depends_on, calls, defines, references (omit for all)."
+    )]
+    pub relation: Option<String>,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }
