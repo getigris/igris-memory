@@ -1,5 +1,6 @@
 pub mod c;
 pub mod cpp;
+pub mod csharp;
 pub mod go;
 pub mod java;
 pub mod javascript;
@@ -15,6 +16,7 @@ use super::extractor::LanguageExtractorRegistry;
 pub fn register_all(registry: &mut LanguageExtractorRegistry) {
     registry.register(Box::new(c::CExtractor));
     registry.register(Box::new(cpp::CppExtractor));
+    registry.register(Box::new(csharp::CSharpExtractor));
     registry.register(Box::new(go::GoExtractor));
     registry.register(Box::new(java::JavaExtractor));
     registry.register(Box::new(javascript::JavaScriptExtractor));
