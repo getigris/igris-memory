@@ -92,6 +92,8 @@ jobs:
             target
           key: mutants-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: mutants-
-      - run: cargo install cargo-mutants --locked
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants@27.1.0
       - run: git diff origin/${{ github.base_ref }}...HEAD > diff.txt
-      - run: cargo mutants --in-diff diff.txt
+      - run: cargo mutants --in-diff diff.txt --in-place
