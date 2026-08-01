@@ -46,6 +46,88 @@ fn hash_embedder_is_deterministic_and_normalized() {
 }
 
 #[test]
+fn hash_embedder_pins_bucket_and_sign_for_known_tokens() {
+    use crate::embed::{Embedder, HashEmbedder};
+    let e = HashEmbedder::new(4);
+    // Hand-computed FNV-1a (offset 1469598103934665603, prime 1099511628211) for a
+    // single-token input pins the resulting bucket index and sign exactly: with a
+    // single token there's exactly one non-zero, unit-magnitude entry, so any
+    // perturbation to the mixing (^=, &, >>, or the sign literal) moves it to a
+    // different index and/or flips its sign.
+    // "a": h = 4953267810257967366 -> idx = h % 4 = 2, top bit clear -> sign = +1.0
+    assert_eq!(e.embed("a").unwrap(), vec![0.0, 0.0, 1.0, 0.0]);
+    // "test": h = 10905494432584914231 -> idx = h % 4 = 3, top bit set -> sign = -1.0
+    assert_eq!(e.embed("test").unwrap(), vec![0.0, 0.0, 0.0, -1.0]);
+}
+
+#[test]
+fn hash_embedder_empty_input_yields_zero_vector_without_dividing() {
+    use crate::embed::{Embedder, HashEmbedder};
+    let e = HashEmbedder::new(4);
+    // No tokens => every bucket stays 0.0, so norm is exactly 0.0. The `norm > 0.0`
+    // guard must skip the normalization loop; a `>=` mutant would instead divide
+    // 0.0 / 0.0, producing NaNs instead of this exact zero vector.
+    assert_eq!(e.embed("").unwrap(), vec![0.0, 0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn hash_embedder_dimensions_returns_configured_dim() {
+    use crate::embed::{Embedder, HashEmbedder};
+    assert_eq!(HashEmbedder::new(7).dimensions(), 7);
+}
+
+#[test]
+fn ollama_embedder_embed_returns_response_vector() {
+    use crate::embed::{Embedder, OllamaEmbedder};
+
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/api/embeddings")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"embedding":[0.25,0.5,0.75]}"#)
+        .create();
+
+    let embedder = OllamaEmbedder::new(server.url(), "test-model".to_string());
+    let result = embedder.embed("some text").unwrap();
+
+    assert_eq!(result, vec![0.25f32, 0.5, 0.75]);
+    mock.assert();
+}
+
+#[test]
+fn ollama_embedder_dimensions_is_always_zero() {
+    use crate::embed::{Embedder, OllamaEmbedder};
+    let embedder = OllamaEmbedder::new("http://localhost:11434".to_string(), "llama3".to_string());
+    assert_eq!(embedder.dimensions(), 0);
+}
+
+#[test]
+fn ollama_embedder_model_roundtrips_exactly() {
+    use crate::embed::{Embedder, OllamaEmbedder};
+    let embedder = OllamaEmbedder::new("http://localhost:11434".to_string(), "llama3".to_string());
+    assert_eq!(embedder.model(), "llama3");
+}
+
+#[test]
+fn cosine_similarity_length_mismatch_short_circuits_before_indexing() {
+    use crate::embed::cosine_similarity;
+    // a.len() != b.len(): must return 0.0 via the first guard disjunct without
+    // ever entering the loop. An `&&` mutant would fall through into the loop and
+    // panic on out-of-bounds access when indexing b past its (shorter) length.
+    assert_eq!(cosine_similarity(&[1.0, 2.0], &[1.0]), 0.0);
+}
+
+#[test]
+fn cosine_similarity_one_sided_zero_vector_returns_zero() {
+    use crate::embed::cosine_similarity;
+    // na == 0.0 but nb != 0.0: must return 0.0 via the second guard disjunct. An
+    // `&&` mutant would only fire when *both* norms are zero, so this one-sided
+    // case falls through and divides by zero, yielding NaN instead of 0.0.
+    assert_eq!(cosine_similarity(&[0.0, 0.0], &[1.0, 2.0]), 0.0);
+}
+
+#[test]
 fn vector_blob_roundtrip_and_cosine() {
     use crate::embed::{blob_to_vec, cosine_similarity, vec_to_blob};
     let v = vec![0.1f32, -0.2, 0.3, 0.4];
