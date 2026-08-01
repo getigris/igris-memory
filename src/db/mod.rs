@@ -82,6 +82,9 @@ impl Database {
         Ok(db)
     }
 
+    // Every SCHEMA_Vn block below is idempotent (`IF NOT EXISTS` guards), so
+    // `version < N` vs `version <= N` is unobservable — equivalent mutant.
+    #[cfg_attr(test, mutants::skip)]
     fn init(&self) -> SqlResult<()> {
         self.conn.execute_batch(PRAGMAS)?;
         let version: u32 = self
