@@ -2,6 +2,7 @@ pub mod extractor;
 pub mod extractors;
 pub mod indexer;
 pub mod language;
+pub mod query_runner;
 pub mod walker;
 
 #[allow(unused_imports)]
