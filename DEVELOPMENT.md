@@ -159,7 +159,15 @@ sqlite-vec is statically linked via `register_sqlite_vec` (in `embed.rs`), makin
 
 The code graph is a structural index of a project's source tree — files, symbols (functions/methods/classes/etc.), and the edges between them (imports, calls, definitions) — extracted via [tree-sitter](https://tree-sitter.github.io/tree-sitter/) and persisted for fast structural queries (`igris_code_search`, `igris_code_neighbors`, `igris_code_path`, `igris_code_map`). It complements FTS5/vector search: those answer "what was said about X," the code graph answers "who calls/imports/depends on X."
 
-13 Tier 1 languages are supported: Rust, JavaScript, TypeScript, TSX, Python, Go, Java, C, C++, C#, Ruby, PHP, Swift, Kotlin. Each has its own `LanguageExtractor` (`src/codegraph/extractors/*.rs`) that pairs a tree-sitter grammar with a `.scm` query file (`src/codegraph/queries/*.scm`) capturing `@name.function`, `@name.call`, and `@name.import` nodes; the shared `query_runner::run_query` (`src/codegraph/query_runner.rs`) does the actual parse-and-capture work so each extractor is just wiring, not a hand-rolled tree walk.
+13 Tier 1 languages are supported: Rust, JavaScript, TypeScript, TSX, Python, Go, Java, C, C++, C#, Ruby, PHP, Swift, Kotlin. Each has its own `LanguageExtractor` (`src/codegraph/extractors/*.rs`) that pairs a tree-sitter grammar with a `.scm` query file (`src/codegraph/queries/*.scm`) capturing `@name.function`, `@name.call`, and `@name.import` nodes; the shared `query_runner::run_query` (`src/codegraph/query_runner.rs`) does the actual parse-and-capture work so each extractor is just wiring, not a hand-rolled tree walk. A symbol's line range comes from the match's `@definition.*` wrapper capture (the whole definition body), not the `@name.*` identifier token — so a multi-line function gets a real `end_line > start_line`.
+
+#### What the graph does and doesn't say today
+
+The extractors deliberately stop short of full semantic analysis. Three limits are worth stating up front, because they change how results should be read:
+
+- **`calls` edges are attributed to the containing file, not the calling symbol.** No current extractor sets `ExtractedEdge::src_qualified_name`, so every `calls` edge is sourced from the file node. `igris_code_neighbors` with `direction: "in"` therefore answers *"which files contain a call to this name"*, not *"which function calls this"*. Symbol-level call attribution is a Phase 2 follow-up.
+- **`resolution` is only ever `"heuristic"` (calls) or `"static"` (imports).** The `"ambiguous"` value the design spec reserves is not produced by any current extractor.
+- **Only `imports` and `calls` relations are produced.** `defines` and `references` are reserved for future extractors; filtering `igris_code_neighbors` by them matches nothing today.
 
 #### Module Map
 
@@ -174,8 +182,8 @@ The code graph is a structural index of a project's source tree — files, symbo
 
 #### MCP Tools
 
-- **`igris_code_search`** — find code nodes (files/symbols) by name or path substring, optionally filtered by `kind`/`language`/`project`. For structural questions ("who calls/imports/depends on X"), not free-text search inside file contents (use Grep/Glob for that) or knowledge about people/decisions/concepts (use `igris_entity_search` for that)
-- **`igris_code_neighbors`** — directly connected code nodes (imports/calls/etc.) for a given node, with `resolution` confidence and `external_boundary` on each edge. Absence of a `"static"` edge means the analyzer couldn't resolve a caller, not proof one doesn't exist — dynamic dispatch and reflection are blind spots
+- **`igris_code_search`** — find code nodes (files/symbols) by name or path substring, optionally filtered by `kind`/`language`/`project`. Every symbol result carries its owning file's `relative_path` and `language` alongside `start_line`/`end_line`, so a hit is directly actionable (open that file at that line) without a second lookup. For structural questions ("who calls/imports/depends on X"), not free-text search inside file contents (use Grep/Glob for that) or knowledge about people/decisions/concepts (use `igris_entity_search` for that)
+- **`igris_code_neighbors`** — connected code nodes (imports/calls) for a given node, expanded breadth-first for `hops` hops (default 1, minimum 1), with `resolution` confidence and `external_boundary` on each edge. Each edge is returned at most once and each node expanded at most once, so cycles terminate; results are ordered by hop distance. Remember the file-level attribution of `calls` edges described above — `direction: "in"` gives calling *files*, not calling functions. Absence of a `"static"` edge means the analyzer couldn't resolve a caller, not proof one doesn't exist — dynamic dispatch and reflection are blind spots
 - **`igris_code_path`** — shortest path (BFS, capped at `max_hops`) between two code nodes, returning the edge chain connecting them, or a clean "not found" result (not an error) if no path exists within the hop cap
 - **`igris_code_map`** — a one-call summary of a file: its symbols and strongest connections, meant for orienting in an unfamiliar part of the codebase before reading files directly
 
@@ -184,8 +192,8 @@ The code graph is a structural index of a project's source tree — files, symbo
 Schema v5 adds three tables, applied on top of v1–v4:
 
 - `code_files`: one row per (project, root_path, relative_path), tracking `language` and a `content_hash` used to skip reparsing unchanged files on the next index run
-- `code_symbols`: functions/methods/classes/etc. extracted from a `code_files` row, with `kind`, `name`, `qualified_name`, and line range
-- `code_edges`: typed relations (`relation`, e.g. `calls`/`imports`/`defines`) between two nodes. `dst_id`/`dst_type` are `NULL` when the target couldn't be resolved within the index — the raw `dst_name` is kept so the fact isn't silently dropped. `resolution` records how confident the edge is (`"heuristic"` from the shared query runner today; exact same-scope resolution is future work) and `external_boundary` flags edges that leave the indexed project (e.g. a call into a third-party dependency)
+- `code_symbols`: functions/methods/classes/etc. extracted from a `code_files` row, with `kind`, `name`, `qualified_name`, and line range. Reads always join `code_files`, so the `CodeSymbol` model also carries the owning file's `relative_path`/`language`
+- `code_edges`: typed relations between two nodes. In practice `relation` is `calls` or `imports` — those are the only two any current extractor emits. `dst_id`/`dst_type` are `NULL` when the target couldn't be resolved within the index — the raw `dst_name` is kept so the fact isn't silently dropped. `resolution` records how confident the edge is (`"heuristic"` for calls, `"static"` for imports; exact same-scope resolution and the spec's `"ambiguous"` value are future work). `external_boundary` marks edges that leave the indexed project: today it is set for an `imports` edge whose target resolves to no in-project symbol (an unresolved import target is external by definition). Unresolved `calls` are *not* marked external — a call name may simply belong to a file not yet indexed in this run
 
 Like embeddings and the vec0 index, the code graph is a **derived cache**: it's rebuilt from source on each index run and is not covered by `igris_export`/`igris_import`.
 

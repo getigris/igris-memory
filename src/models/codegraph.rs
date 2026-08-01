@@ -15,6 +15,10 @@ pub struct CodeFile {
 }
 
 /// A function/method/class/etc. extracted from a `CodeFile`.
+///
+/// `relative_path`/`language` are denormalized from the owning `CodeFile` on
+/// every read so a symbol returned by a query is enough to open the right file
+/// on disk (`relative_path` + `start_line`) without a second lookup.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct CodeSymbol {
@@ -27,6 +31,8 @@ pub struct CodeSymbol {
     pub end_line: i64,
     pub indexed_at: String,
     pub deleted_at: Option<String>,
+    pub relative_path: String,
+    pub language: String,
 }
 
 /// A typed relation between two code nodes (file or symbol). `dst_id`/`dst_type`

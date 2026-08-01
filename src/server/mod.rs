@@ -1760,7 +1760,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_code_search",
-        description = "Find code nodes (files/symbols) by name or path substring. Use for structural questions — who calls/imports/depends on what. For free-text search inside file contents, use Grep/Glob instead; for knowledge about people/decisions/concepts, use igris_entity_search."
+        description = "Find code nodes (files/symbols) by name or path substring. Each result carries its owning file's relative_path and language plus the symbol's start_line/end_line, so a hit is enough to open the right file. Use for structural questions — who calls/imports/depends on what. For free-text search inside file contents, use Grep/Glob instead; for knowledge about people/decisions/concepts, use igris_entity_search."
     )]
     fn igris_code_search(
         &self,
@@ -1821,7 +1821,7 @@ impl IgrisServer {
 
     #[tool(
         name = "igris_code_neighbors",
-        description = "Directly connected code nodes (imports/calls/etc.), with resolution confidence and external_boundary on each edge. Absence of a 'static' edge means the analyzer couldn't resolve a caller — not proof one doesn't exist (dynamic dispatch/reflection are blind spots)."
+        description = "Connected code nodes (imports/calls), expanded breadth-first for `hops` hops, with resolution confidence and external_boundary on each edge. IMPORTANT: 'calls' edges are attributed to the containing file, not the calling symbol — direction 'in' answers 'which files contain a call to this name', not 'which function calls this'. Symbol-level call attribution is a Phase 2 follow-up. external_boundary is true for imports whose target resolves to nothing in the indexed project. Absence of a 'static' edge means the analyzer couldn't resolve a caller — not proof one doesn't exist (dynamic dispatch/reflection are blind spots)."
     )]
     fn igris_code_neighbors(
         &self,

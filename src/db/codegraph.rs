@@ -13,14 +13,12 @@ use super::{Database, DbResult, OptionalExt};
 impl Database {
     const CODE_FILE_COLS: &'static str =
         "id, project, root_path, relative_path, language, content_hash, indexed_at, deleted_at";
-    const CODE_SYMBOL_COLS: &'static str =
-        "id, file_id, kind, name, qualified_name, start_line, end_line, indexed_at, deleted_at";
-    // Same columns as CODE_SYMBOL_COLS, `s.`-prefixed for the joined query in
-    // `search_code_nodes` (kept as a literal rather than derived from
-    // CODE_SYMBOL_COLS at runtime, matching the rest of this codebase's
-    // fully-literal SQL strings).
-    const CODE_SYMBOL_COLS_ALIASED: &'static str = "s.id, s.file_id, s.kind, s.name, \
-         s.qualified_name, s.start_line, s.end_line, s.indexed_at, s.deleted_at";
+    // Every symbol read joins its owning `code_files` row so `relative_path`
+    // and `language` travel with the symbol — a search/neighbor result is then
+    // enough to open the file on disk without a second lookup.
+    const CODE_SYMBOL_COLS: &'static str = "s.id, s.file_id, s.kind, s.name, s.qualified_name, \
+         s.start_line, s.end_line, s.indexed_at, s.deleted_at, f.relative_path, f.language";
+    const CODE_SYMBOL_FROM: &'static str = "code_symbols s JOIN code_files f ON f.id = s.file_id";
     const CODE_EDGE_COLS: &'static str = "id, src_id, src_type, dst_id, dst_type, dst_name, relation, \
          resolution, external_boundary, evidence_count, first_seen, last_seen";
 
@@ -48,6 +46,8 @@ impl Database {
             end_line: row.get(6).unwrap_or_default(),
             indexed_at: row.get(7).unwrap_or_default(),
             deleted_at: row.get(8).unwrap_or(None),
+            relative_path: row.get(9).unwrap_or_default(),
+            language: row.get(10).unwrap_or_default(),
         }
     }
 
@@ -161,9 +161,9 @@ impl Database {
     /// `dst_name` on each edge is resolved against symbols already indexed in
     /// the same `project` (by `qualified_name`): a match sets
     /// `dst_id`/`dst_type`; no match leaves both `None` — the edge is kept
-    /// either way (as an `external_boundary` fact, or as an unresolved
-    /// same-project reference that a later file's indexing pass may resolve
-    /// once that symbol exists).
+    /// either way (as an unresolved same-project reference that a later file's
+    /// indexing pass may resolve once that symbol exists). An unresolved
+    /// `imports` target is additionally marked `external_boundary = true`.
     pub fn replace_symbols_and_edges_for_file(
         &self,
         file_id: i64,
@@ -244,6 +244,15 @@ impl Database {
                 None => (None, None),
             };
 
+            // An `imports` target that resolves to nothing in this project is
+            // by definition outside it (a third-party crate/package/module),
+            // so the edge leaves the indexed project. `calls` gets no such
+            // treatment: an unresolved call name is usually a method or a
+            // not-yet-indexed same-project function, not proof of an external
+            // target (see the walk-order caveat in DEVELOPMENT.md).
+            let external_boundary =
+                edge.external_boundary || (edge.relation == "imports" && dst_id.is_none());
+
             tx.execute(
                 "INSERT INTO code_edges (src_id, src_type, dst_id, dst_type, dst_name, relation, resolution, external_boundary, evidence_count, first_seen, last_seen)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?9)",
@@ -255,7 +264,7 @@ impl Database {
                     edge.dst_name,
                     edge.relation,
                     edge.resolution,
-                    edge.external_boundary as i64,
+                    external_boundary as i64,
                     now
                 ],
             )?;
@@ -298,7 +307,9 @@ impl Database {
     }
 
     /// Finds symbol nodes by name substring (case-insensitive), optionally
-    /// filtered by symbol kind, file language, and project.
+    /// filtered by symbol kind, file language, and project. Each result carries
+    /// its owning file's `relative_path`/`language`, so a caller can go
+    /// straight from a hit to the file on disk.
     pub fn search_code_nodes(
         &self,
         query: &str,
@@ -309,15 +320,15 @@ impl Database {
     ) -> DbResult<Vec<CodeNode>> {
         let like = format!("%{}%", query.to_lowercase());
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} FROM code_symbols s
-             JOIN code_files f ON f.id = s.file_id
+            "SELECT {} FROM {}
              WHERE lower(s.name) LIKE ?1 AND s.deleted_at IS NULL AND f.deleted_at IS NULL
                AND (?2 IS NULL OR s.kind = ?2)
                AND (?3 IS NULL OR f.language = ?3)
                AND (?4 IS NULL OR f.project = ?4)
              ORDER BY s.indexed_at DESC
              LIMIT ?5",
-            Self::CODE_SYMBOL_COLS_ALIASED
+            Self::CODE_SYMBOL_COLS,
+            Self::CODE_SYMBOL_FROM
         ))?;
         let symbols: Vec<CodeNode> = stmt
             .query_map(params![like, kind, language, project, limit], |row| {
@@ -328,14 +339,67 @@ impl Database {
         Ok(symbols)
     }
 
-    /// Directly connected nodes (1 hop) for `(node_type, node_id)`. `hops > 1`
-    /// is not implemented in this task — Task 11 (`igris_code_neighbors`
-    /// tool) calls this repeatedly to walk multiple hops.
+    /// Connected nodes for `(node_type, node_id)`, expanding the frontier
+    /// `hops` times (breadth-first, same traversal shape as `code_path`).
+    /// Every edge is returned at most once, and every node is expanded at most
+    /// once, so cycles terminate. Results are ordered by hop distance: all
+    /// 1-hop edges first, then 2-hop, and so on.
     pub fn code_neighbors(
         &self,
         node_type: &str,
         node_id: i64,
-        _hops: i64,
+        hops: i64,
+        direction: &str,
+        relation: Option<&str>,
+    ) -> DbResult<Vec<CodeNeighbor>> {
+        use std::collections::HashSet;
+
+        if hops < 1 {
+            return Err(IgrisError::validation(format!(
+                "hops must be >= 1, got {hops}"
+            )));
+        }
+
+        let mut visited: HashSet<(String, i64)> = HashSet::from([(node_type.to_string(), node_id)]);
+        let mut seen_edges: HashSet<i64> = HashSet::new();
+        let mut frontier = vec![(node_type.to_string(), node_id)];
+        let mut all = Vec::new();
+
+        for _ in 0..hops {
+            let mut next_frontier = Vec::new();
+            for (current_type, current_id) in std::mem::take(&mut frontier) {
+                for neighbor in
+                    self.code_neighbors_one_hop(&current_type, current_id, direction, relation)?
+                {
+                    if !seen_edges.insert(neighbor.edge.id) {
+                        continue;
+                    }
+                    if let Some(ref node) = neighbor.node {
+                        let key = match node {
+                            CodeNode::Symbol(s) => ("symbol".to_string(), s.id),
+                            CodeNode::File(f) => ("file".to_string(), f.id),
+                        };
+                        if visited.insert(key.clone()) {
+                            next_frontier.push(key);
+                        }
+                    }
+                    all.push(neighbor);
+                }
+            }
+            if next_frontier.is_empty() {
+                break;
+            }
+            frontier = next_frontier;
+        }
+
+        Ok(all)
+    }
+
+    /// Directly connected nodes (exactly 1 hop) for `(node_type, node_id)`.
+    fn code_neighbors_one_hop(
+        &self,
+        node_type: &str,
+        node_id: i64,
         direction: &str,
         relation: Option<&str>,
     ) -> DbResult<Vec<CodeNeighbor>> {
@@ -377,8 +441,9 @@ impl Database {
                     .conn
                     .query_row(
                         &format!(
-                            "SELECT {} FROM code_symbols WHERE id = ?1",
-                            Self::CODE_SYMBOL_COLS
+                            "SELECT {} FROM {} WHERE s.id = ?1",
+                            Self::CODE_SYMBOL_COLS,
+                            Self::CODE_SYMBOL_FROM
                         ),
                         params![id],
                         |row| Ok(CodeNode::Symbol(Self::row_to_code_symbol(row))),
@@ -428,7 +493,7 @@ impl Database {
             if path.len() as i64 >= max_hops {
                 continue;
             }
-            let neighbors = self.code_neighbors(&current.0, current.1, 1, "both", None)?;
+            let neighbors = self.code_neighbors_one_hop(&current.0, current.1, "both", None)?;
             for neighbor in neighbors {
                 let Some(ref node) = neighbor.node else {
                     continue;
@@ -467,15 +532,16 @@ impl Database {
             .ok_or_else(|| IgrisError::not_found(format!("no indexed file at {path}")))?;
 
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} FROM code_symbols WHERE file_id = ?1 AND deleted_at IS NULL",
-            Self::CODE_SYMBOL_COLS
+            "SELECT {} FROM {} WHERE s.file_id = ?1 AND s.deleted_at IS NULL",
+            Self::CODE_SYMBOL_COLS,
+            Self::CODE_SYMBOL_FROM
         ))?;
         let symbols: Vec<CodeSymbol> = stmt
             .query_map(params![file_id], |row| Ok(Self::row_to_code_symbol(row)))?
             .filter_map(|r| r.ok())
             .collect();
 
-        let mut top_connections = self.code_neighbors("file", file_id, 1, "both", None)?;
+        let mut top_connections = self.code_neighbors_one_hop("file", file_id, "both", None)?;
         top_connections.sort_by(|a, b| b.edge.evidence_count.cmp(&a.edge.evidence_count));
 
         Ok(CodeMap {

@@ -325,12 +325,14 @@ pub struct CodeNeighborsArgs {
     pub node_id: i64,
     #[schemars(description = "Node type: 'file' or 'symbol'.")]
     pub node_type: String,
-    #[schemars(description = "How many hops to traverse (default 1).")]
+    #[schemars(
+        description = "How many hops to traverse, breadth-first (default 1, minimum 1). Results are ordered by hop distance and each edge appears at most once."
+    )]
     pub hops: Option<i64>,
     #[schemars(description = "Direction: 'in', 'out', or 'both' (default 'both').")]
     pub direction: Option<String>,
     #[schemars(
-        description = "Filter by relation: imports, depends_on, calls, defines, references (omit for all)."
+        description = "Filter by relation (omit for all). Only 'imports' and 'calls' are produced by the current extractors; 'defines'/'references' are reserved for a future extractor and match nothing today."
     )]
     pub relation: Option<String>,
 }

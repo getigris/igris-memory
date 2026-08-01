@@ -345,6 +345,15 @@ async fn code_search_returns_indexed_symbol() -> anyhow::Result<()> {
         text_content.contains("\"kind\": \"function\""),
         "expected symbol kind in response, got {text_content}"
     );
+    // A search hit is only actionable if it says which file to open.
+    assert!(
+        text_content.contains("\"relative_path\": \"fixture.rs\""),
+        "expected the owning file's path in response, got {text_content}"
+    );
+    assert!(
+        text_content.contains("\"language\": \"rust\""),
+        "expected the owning file's language in response, got {text_content}"
+    );
 
     wait_until(&signal, Duration::from_secs(2), || {
         collected.logs.lock().unwrap().len() >= 2
