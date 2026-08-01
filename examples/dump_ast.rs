@@ -25,6 +25,7 @@ fn main() {
         "typescript" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         "tsx" => tree_sitter_typescript::LANGUAGE_TSX.into(),
         "python" => tree_sitter_python::LANGUAGE.into(),
+        "go" => tree_sitter_go::LANGUAGE.into(),
         other => {
             eprintln!(
                 "unsupported language for dump_ast: {other} (add it to this match as you add its grammar dependency)"
