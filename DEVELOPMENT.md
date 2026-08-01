@@ -52,9 +52,18 @@ The binary dispatches to one of four modes based on the CLI command:
 src/
 ├── main.rs          # Entry: CLI parse → logging → DB init → mode dispatch
 ├── cli.rs           # clap derive structs (Cli, Command, ServeArgs, SyncArgs)
-├── schema.rs        # SQL schema v1+v2+v3+v4: tables, FTS5, triggers, indices, pragmas (v2 = entity graph, v3 = embeddings, v4 = vec0 index)
+├── schema.rs        # SQL schema v1+v2+v3+v4+v5: tables, FTS5, triggers, indices, pragmas (v2 = entity graph, v3 = embeddings, v4 = vec0 index, v5 = code graph)
 ├── store.rs         # BrainStore trait — storage contract (entity/graph surface)
 ├── embed.rs         # Embedder trait, HashEmbedder, vector utils, register_sqlite_vec (statically-linked)
+├── codegraph/
+│   ├── mod.rs          # Re-exports: Language, LanguageExtractor(Registry), Extracted{Symbol,Edge}, ExtractionResult
+│   ├── language.rs     # Language enum — one variant per Tier 1 language, extension → Language mapping
+│   ├── walker.rs       # discover_files: gitignore-aware file discovery (ignore crate) + content hashing
+│   ├── query_runner.rs # Shared run_query: parses source, runs a tree-sitter .scm query, folds captures into an ExtractionResult
+│   ├── extractor.rs    # LanguageExtractor trait + LanguageExtractorRegistry (one extractor per Language)
+│   ├── indexer.rs      # index_project: walk → diff by content hash → extract → persist → soft-delete missing files
+│   ├── queries/*.scm   # Tree-sitter query per language (captures @name.function/@name.call/@name.import etc.)
+│   └── extractors/*.rs # One LanguageExtractor impl per Tier 1 language (rust, javascript, typescript, python, go, java, c, cpp, csharp, ruby, php, swift, kotlin), each wiring its grammar + queries/*.scm into query_runner::run_query
 ├── db/
 │   ├── mod.rs           # Database struct (rusqlite Connection), init, schema apply
 │   ├── observations.rs  # CRUD + topic-key upsert + SHA-256 dedup (15-min window)
@@ -66,9 +75,10 @@ src/
 │   ├── sessions.rs      # Session lifecycle
 │   ├── timeline.rs      # Chronological before/after queries
 │   ├── export.rs        # Full export/import with hash-based dedup
-│   └── purge.rs         # Hard-delete soft-deleted entries + VACUUM
+│   ├── purge.rs         # Hard-delete soft-deleted entries + VACUUM
+│   └── codegraph.rs     # Code graph persistence/query layer: file/symbol/edge upserts, name resolution, search, neighbors (BFS), shortest path, code_map
 ├── server/
-│   ├── mod.rs       # IgrisServer with #[tool_router] — 27 MCP tools
+│   ├── mod.rs       # IgrisServer with #[tool_router] — 31 MCP tools
 │   ├── notify.rs    # Best-effort MCP logging/progress notifications (logging capability, dynamic level via logging/setLevel)
 │   └── args.rs      # Tool parameter schemas (schemars JsonSchema)
 ├── http/
@@ -79,6 +89,7 @@ src/
 │   ├── handler.rs   # Keyboard event handling (vim-style + arrows)
 │   └── ui.rs        # ratatui rendering (tabs, table, detail, search, stats)
 ├── models/          # Observation, Session, SearchResult, Timeline, Stats, ExportData, Entity, Edge, EntityNeighbor, EntityBrief
+│   └── codegraph.rs # CodeFile, CodeSymbol, CodeEdge, CodeNode (file|symbol), CodeNeighbor, CodeMap, IndexSummary
 ├── errors.rs        # IgrisError with ErrorCode → HTTP status mapping
 ├── validation.rs    # Type/scope validation, non-empty checks
 ├── topic.rs         # suggest_topic_key: type → family, title → slug
@@ -141,6 +152,46 @@ sqlite-vec is statically linked via `register_sqlite_vec` (in `embed.rs`), makin
 1. If `--vector-index vec` is enabled and vec0 exists: run ANN query with over-fetch (kNN + safety margin), post-filter with exact cosine recomputed from the durable embedding blob
 2. If fallback needed (no vec0 or error): brute-force cosine similarity over all embeddings
 3. Similarity is always exact cosine, independent of vec0's internal distance metric
+
+### Code Graph (Fase 2)
+
+#### Overview
+
+The code graph is a structural index of a project's source tree — files, symbols (functions/methods/classes/etc.), and the edges between them (imports, calls, definitions) — extracted via [tree-sitter](https://tree-sitter.github.io/tree-sitter/) and persisted for fast structural queries (`igris_code_search`, `igris_code_neighbors`, `igris_code_path`, `igris_code_map`). It complements FTS5/vector search: those answer "what was said about X," the code graph answers "who calls/imports/depends on X."
+
+13 Tier 1 languages are supported: Rust, JavaScript, TypeScript, TSX, Python, Go, Java, C, C++, C#, Ruby, PHP, Swift, Kotlin. Each has its own `LanguageExtractor` (`src/codegraph/extractors/*.rs`) that pairs a tree-sitter grammar with a `.scm` query file (`src/codegraph/queries/*.scm`) capturing `@name.function`, `@name.call`, and `@name.import` nodes; the shared `query_runner::run_query` (`src/codegraph/query_runner.rs`) does the actual parse-and-capture work so each extractor is just wiring, not a hand-rolled tree walk.
+
+#### Module Map
+
+- `src/codegraph/language.rs` — `Language` enum, one variant per Tier 1 language, plus extension → `Language` mapping (files with an unrecognized extension are silently skipped, not treated as an error)
+- `src/codegraph/walker.rs` — `discover_files`: gitignore-aware directory walk (via the `ignore` crate, the same one `ripgrep` uses) that returns every supported file with its content hash
+- `src/codegraph/query_runner.rs` — `run_query`: parses source with a language's tree-sitter grammar, runs its `.scm` query, and folds captures into an `ExtractionResult`. Never panics on malformed input — a syntax error in one file degrades to fewer/incomplete captures for that file, not a crash of the whole index run
+- `src/codegraph/extractor.rs` — `LanguageExtractor` trait (one impl per language) and `LanguageExtractorRegistry` (looks up the right extractor by `Language`)
+- `src/codegraph/extractors/*.rs` — the 13 Tier 1 language extractors
+- `src/codegraph/indexer.rs` — `index_project`: walks a root, reparses any file whose content hash changed since the last run (or that's new), persists symbols/edges, and soft-deletes any previously-indexed file no longer on disk
+- `src/db/codegraph.rs` — persistence/query layer: file/symbol/edge upserts, cross-file name resolution (turning an edge's raw `dst_name` into a resolved `dst_id`/`dst_type` where possible), `search_code_nodes`, `code_neighbors` (BFS), `code_path` (shortest path, BFS capped at `max_hops`), and `code_map`
+- `src/models/codegraph.rs` — `CodeFile`, `CodeSymbol`, `CodeEdge`, `CodeNode` (`File`/`Symbol`), `CodeNeighbor`, `CodeMap`, `IndexSummary`
+
+#### MCP Tools
+
+- **`igris_code_search`** — find code nodes (files/symbols) by name or path substring, optionally filtered by `kind`/`language`/`project`. For structural questions ("who calls/imports/depends on X"), not free-text search inside file contents (use Grep/Glob for that) or knowledge about people/decisions/concepts (use `igris_entity_search` for that)
+- **`igris_code_neighbors`** — directly connected code nodes (imports/calls/etc.) for a given node, with `resolution` confidence and `external_boundary` on each edge. Absence of a `"static"` edge means the analyzer couldn't resolve a caller, not proof one doesn't exist — dynamic dispatch and reflection are blind spots
+- **`igris_code_path`** — shortest path (BFS, capped at `max_hops`) between two code nodes, returning the edge chain connecting them, or a clean "not found" result (not an error) if no path exists within the hop cap
+- **`igris_code_map`** — a one-call summary of a file: its symbols and strongest connections, meant for orienting in an unfamiliar part of the codebase before reading files directly
+
+#### Schema (v5)
+
+Schema v5 adds three tables, applied on top of v1–v4:
+
+- `code_files`: one row per (project, root_path, relative_path), tracking `language` and a `content_hash` used to skip reparsing unchanged files on the next index run
+- `code_symbols`: functions/methods/classes/etc. extracted from a `code_files` row, with `kind`, `name`, `qualified_name`, and line range
+- `code_edges`: typed relations (`relation`, e.g. `calls`/`imports`/`defines`) between two nodes. `dst_id`/`dst_type` are `NULL` when the target couldn't be resolved within the index — the raw `dst_name` is kept so the fact isn't silently dropped. `resolution` records how confident the edge is (`"heuristic"` from the shared query runner today; exact same-scope resolution is future work) and `external_boundary` flags edges that leave the indexed project (e.g. a call into a third-party dependency)
+
+Like embeddings and the vec0 index, the code graph is a **derived cache**: it's rebuilt from source on each index run and is not covered by `igris_export`/`igris_import`.
+
+#### Background Indexing
+
+`igris_session_start` triggers a background index of `directory` (if provided) immediately after registering the session — it doesn't block the tool's response. The indexing itself runs on a blocking task (`tokio::task::spawn_blocking`) since tree-sitter parsing and SQLite writes are both synchronous; a `notifications/message` log (`code_index`) reports `files_indexed`/`files_unchanged`/`files_skipped_unsupported`/`files_failed_parse`/`files_deleted` once it completes. A client that never calls the four `igris_code_*` tools, or that ignores the notification, sees no difference in `igris_session_start`'s own latency or return value.
 
 ### Embeddings & Semantic Search Configuration
 
