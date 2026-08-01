@@ -394,7 +394,7 @@ fn export_includes_all_data() {
     let data = db.export_all().unwrap();
     assert_eq!(data.observations.len(), 2);
     assert_eq!(data.sessions.len(), 1);
-    assert_eq!(data.version, 4);
+    assert_eq!(data.version, 5);
     assert!(!data.exported_at.is_empty());
 }
 
@@ -1125,4 +1125,20 @@ fn purge_with_progress_reports_both_phases() {
             ("vacuum".to_string(), 2, 2)
         ]
     );
+}
+
+// ─── Code Graph ─────────────────────────────────────────────────
+
+#[test]
+fn schema_v5_creates_code_graph_tables() {
+    let db = Database::open_in_memory().unwrap();
+    let count: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('code_files','code_symbols','code_edges')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 3);
 }
