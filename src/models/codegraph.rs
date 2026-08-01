@@ -80,7 +80,6 @@ pub struct IndexSummary {
 
 /// A one-call summary of a file or directory: its symbols and strongest connections.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct CodeMap {
     pub path: String,
     pub symbols: Vec<CodeSymbol>,

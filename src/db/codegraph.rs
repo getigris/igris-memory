@@ -7,11 +7,9 @@ use crate::utils::now_utc;
 
 use super::{Database, DbResult, OptionalExt};
 
-// `search_code_nodes` is wired into the `igris_code_search` MCP tool (Task 10).
-// The remaining methods (code_neighbors, code_path, code_map) are not yet
-// wired into `main`/`server` — Tasks 11-13 (MCP query tools) are their
-// callers. Exercised by `codegraph_tests` in the meantime.
-#[allow(dead_code)]
+// `search_code_nodes`, `code_neighbors`, `code_path`, and `code_map` are
+// wired into the `igris_code_search`/`igris_code_neighbors`/`igris_code_path`/
+// `igris_code_map` MCP tools (Tasks 10-13).
 impl Database {
     const CODE_FILE_COLS: &'static str =
         "id, project, root_path, relative_path, language, content_hash, indexed_at, deleted_at";

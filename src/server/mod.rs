@@ -1944,6 +1944,63 @@ impl IgrisServer {
         );
         result
     }
+
+    #[tool(
+        name = "igris_code_map",
+        description = "Summary of a file: its symbols and strongest connections. Use to orient in an unfamiliar part of the codebase before reading files directly."
+    )]
+    fn igris_code_map(
+        &self,
+        Parameters(args): Parameters<CodeMapArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
+        let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_code_map",
+            "start",
+            serde_json::json!({
+                "project": args.project,
+                "path": args.path,
+            }),
+        );
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let mut end_data = serde_json::json!({});
+        let result = match db.code_map(&args.project, &args.path) {
+            Ok(map) => {
+                end_data = serde_json::json!({
+                    "symbols_count": map.symbols.len(),
+                    "connections_count": map.top_connections.len(),
+                });
+                to_json(&map)
+            }
+            Err(e) => {
+                tracing::warn!(tool = "igris_code_map", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_code_map",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
+                err_json(e)
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_code_map", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_code_map",
+            "end",
+            notify::with_duration(end_data, duration_ms),
+        );
+        result
+    }
 }
 
 #[tool_handler]

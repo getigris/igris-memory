@@ -654,6 +654,140 @@ async fn code_path_finds_two_hop_chain_and_reports_not_found_when_disconnected()
 }
 
 #[tokio::test]
+async fn code_map_returns_symbols_and_connections_and_reports_not_found_for_unindexed_path()
+-> anyhow::Result<()> {
+    use crate::codegraph::{ExtractedEdge, ExtractedSymbol};
+
+    let db = Database::open_in_memory()?;
+
+    // Seed via the DB layer directly, same rationale as the code_neighbors/
+    // code_path tests: the real extractor never sets `src_qualified_name`,
+    // so a *file-attributed* edge (src_qualified_name: None) is exactly what
+    // `index_project` would also produce — this is the shape `code_map`'s
+    // `top_connections` actually surfaces (edges rooted at the file node),
+    // so it's seeded directly here for a deterministic, reviewable fixture.
+    let file = db.upsert_code_file("code-map-test", "/repo", "src/lib.rs", "rust", "h1")?;
+    let symbols = vec![
+        ExtractedSymbol {
+            kind: "function".into(),
+            name: "helper".into(),
+            qualified_name: "helper".into(),
+            start_line: 1,
+            end_line: 1,
+        },
+        ExtractedSymbol {
+            kind: "function".into(),
+            name: "main".into(),
+            qualified_name: "main".into(),
+            start_line: 3,
+            end_line: 5,
+        },
+    ];
+    let edges = vec![ExtractedEdge {
+        relation: "calls".into(),
+        src_qualified_name: None,
+        dst_name: "helper".into(),
+        resolution: "heuristic".into(),
+        external_boundary: false,
+    }];
+    db.replace_symbols_and_edges_for_file(file.id, &symbols, &edges)?;
+
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_code_map").with_arguments(obj(serde_json::json!({
+                "project": "code-map-test",
+                "path": "src/lib.rs",
+            }))),
+        )
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+
+    let response_json = serde_json::to_value(&response.content)?;
+    let text_content = response_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    assert!(
+        text_content.contains("\"name\": \"helper\""),
+        "expected `helper` symbol in response, got {text_content}"
+    );
+    assert!(
+        text_content.contains("\"name\": \"main\""),
+        "expected `main` symbol in response, got {text_content}"
+    );
+    assert!(
+        text_content.contains("\"relation\": \"calls\""),
+        "expected the file's `calls` connection in response, got {text_content}"
+    );
+
+    // A path that was never indexed must come back as a clean not-found
+    // error, not a panic.
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_code_map").with_arguments(obj(serde_json::json!({
+                "project": "code-map-test",
+                "path": "src/does_not_exist.rs",
+            }))),
+        )
+        .await?;
+
+    let response_json = serde_json::to_value(&response.content)?;
+    let text_content = response_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    assert!(
+        text_content.contains("\"code\":\"NOT_FOUND\""),
+        "expected a structured not-found error, got {text_content}"
+    );
+
+    // First call logs start+end (2); the not-found call additionally logs a
+    // warning-level error entry (3) — see `igris_code_map`'s error branch.
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= 5
+    })
+    .await;
+    {
+        let logs = collected.logs.lock().unwrap();
+        assert_eq!(
+            logs.len(),
+            5,
+            "expected start+end (success) and start+error+end (not-found), got {logs:?}"
+        );
+        assert_eq!(
+            logs.iter()
+                .filter(|m| m.level == LoggingLevel::Warning)
+                .count(),
+            1,
+            "expected exactly one warning-level log for the not-found error, got {logs:?}"
+        );
+        assert_eq!(collected.progress.lock().unwrap().len(), 0);
+    }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn save_and_search_progress_only_with_embedder() -> anyhow::Result<()> {
     let db = Database::open_in_memory()?;
     let embedder = Arc::new(crate::embed::HashEmbedder::new(32));

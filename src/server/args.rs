@@ -336,6 +336,14 @@ pub struct CodeNeighborsArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CodeMapArgs {
+    #[schemars(description = "Project name (as passed to igris_session_start).")]
+    pub project: String,
+    #[schemars(description = "File path relative to the indexed root, e.g. 'src/db/entities.rs'.")]
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CodePathArgs {
     #[schemars(description = "Starting node id.")]
     pub from_id: i64,
