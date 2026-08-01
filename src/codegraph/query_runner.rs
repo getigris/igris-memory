@@ -101,3 +101,71 @@ pub fn run_query(source: &str, spec: &QuerySpec) -> ExtractionResult {
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RUST_QUERY_SRC: &str = include_str!("queries/rust.scm");
+
+    #[test]
+    fn definition_range_is_1_indexed_and_exact() {
+        // Line 1: "fn a() {}"      -> single-line definition, rows [0, 0]
+        // Line 2: "fn b() {"       -> multi-line definition starts here
+        // Line 3: "    1"
+        // Line 4: "}"              -> multi-line definition ends here
+        let src = "fn a() {}\nfn b() {\n    1\n}\n";
+        let spec = QuerySpec {
+            ts_language: tree_sitter_rust::LANGUAGE.into(),
+            query_src: RUST_QUERY_SRC,
+            function_symbol_kind: "function",
+        };
+
+        let result = run_query(src, &spec);
+
+        let a = result
+            .symbols
+            .iter()
+            .find(|s| s.name == "a")
+            .expect("`a` should be extracted");
+        assert_eq!(a.start_line, 1, "unexpected start line: {a:?}");
+        assert_eq!(a.end_line, 1, "unexpected end line: {a:?}");
+
+        let b = result
+            .symbols
+            .iter()
+            .find(|s| s.name == "b")
+            .expect("`b` should be extracted");
+        assert_eq!(b.start_line, 2, "unexpected start line: {b:?}");
+        assert_eq!(b.end_line, 4, "unexpected end line: {b:?}");
+    }
+
+    #[test]
+    fn falls_back_to_name_capture_range_without_definition_wrapper() {
+        // A query that captures `@name.function` without a wrapping
+        // `@definition.*` capture never populates `definition_range`, so
+        // `run_query` must fall back to the `@name.function` token's own
+        // (1-indexed) row range — the `capture.node.start/end_position().row
+        // as i64 + 1` computation this test targets directly.
+        //
+        // "b" (the identifier, not the whole `fn b() {...}` item) sits
+        // entirely on line 2 of the source below, so both start and end
+        // line must be exactly 2.
+        let src = "fn a() {}\nfn b() {\n    1\n}\n";
+        let spec = QuerySpec {
+            ts_language: tree_sitter_rust::LANGUAGE.into(),
+            query_src: "(function_item name: (identifier) @name.function)",
+            function_symbol_kind: "function",
+        };
+
+        let result = run_query(src, &spec);
+
+        let b = result
+            .symbols
+            .iter()
+            .find(|s| s.name == "b")
+            .expect("`b` should be extracted");
+        assert_eq!(b.start_line, 2, "unexpected start line: {b:?}");
+        assert_eq!(b.end_line, 2, "unexpected end line: {b:?}");
+    }
+}
