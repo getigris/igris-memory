@@ -1,0 +1,5 @@
+exclude_globs = [
+    "src/tui/ui.rs",
+    "src/cli.rs",
+    "src/codegraph/extractors/*.rs",
+]
