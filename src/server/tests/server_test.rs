@@ -3,7 +3,7 @@ use rmcp::model::{
     ProgressNotificationParam, SetLevelRequestParams,
 };
 use rmcp::service::NotificationContext;
-use rmcp::{ClientHandler, Peer, RoleClient, ServiceExt};
+use rmcp::{ClientHandler, Peer, RoleClient, ServerHandler, ServiceExt};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
@@ -1487,5 +1487,126 @@ async fn remaining_tools_emit_consistent_notifications() -> anyhow::Result<()> {
     .await?;
 
     client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn debug_fmt_includes_struct_name_and_fields() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+
+    let debug_str = format!("{server:?}");
+    // `Ok(Default::default())` writes nothing at all, so this alone already
+    // kills the mutant — the extra assertions pin down real content too.
+    assert!(
+        !debug_str.is_empty(),
+        "Debug::fmt must actually write something"
+    );
+    assert!(
+        debug_str.contains("IgrisServer"),
+        "expected the struct name in Debug output: {debug_str}"
+    );
+    assert!(
+        debug_str.contains("db"),
+        "expected the `db` field in Debug output: {debug_str}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn igris_save_wires_mentions_when_present() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    // Keep a handle to the server's underlying db so we can inspect the
+    // `mentions`/`entities` tables directly after the round-trip below.
+    let db_handle = server.db.clone();
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let save_response = client
+        .call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+            serde_json::json!({
+                "title": "mentions test",
+                "content": "content about someone",
+                "mentions": ["Mentioned Person"],
+            }),
+        )))
+        .await?;
+    assert_ne!(
+        save_response.is_error,
+        Some(true),
+        "save failed: {:?}",
+        save_response.content
+    );
+
+    let save_json = serde_json::to_value(&save_response.content)?;
+    let text_content = save_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    let parsed: serde_json::Value = serde_json::from_str(text_content)?;
+    let obs_id = parsed["id"]
+        .as_i64()
+        .ok_or_else(|| anyhow::anyhow!("no id in save response"))?;
+
+    // A non-empty `mentions` list must have driven `record_mentions`, which
+    // auto-creates a stub entity for the unknown name and links it to the
+    // saved observation via the `mentions` table. Deleting the `!` in
+    // `!mentions.is_empty()` would skip this wiring for a non-empty list
+    // (it would only run when the list is empty), leaving no such entity
+    // or link — this test would then fail both assertions below.
+    let inner_db = db_handle.lock().unwrap();
+    let entity = inner_db.get_entity_by_slug("mentioned-person", None, "project")?;
+    assert_eq!(entity.canonical_name, "Mentioned Person");
+    let mention_count: i64 = inner_db.conn.query_row(
+        "SELECT COUNT(*) FROM mentions WHERE observation_id = ?1 AND entity_id = ?2",
+        rusqlite::params![obs_id, entity.id],
+        |r| r.get(0),
+    )?;
+    assert_eq!(
+        mention_count, 1,
+        "expected a mentions row linking the observation to the entity"
+    );
+    drop(inner_db);
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_info_reports_real_instructions_and_capabilities() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+
+    let info = server.get_info();
+    // `Default::default()` would produce `instructions: None` and an empty
+    // `capabilities`, so either assertion alone kills the mutant.
+    let instructions = info
+        .instructions
+        .expect("get_info must report Some(instructions)");
+    assert!(
+        instructions.contains("Session Lifecycle"),
+        "expected the real instructions text, got: {instructions}"
+    );
+    assert!(
+        info.capabilities.tools.is_some(),
+        "expected tools capability to be enabled"
+    );
+
     Ok(())
 }
