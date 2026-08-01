@@ -542,7 +542,7 @@ impl Database {
             .collect();
 
         let mut top_connections = self.code_neighbors_one_hop("file", file_id, "both", None)?;
-        top_connections.sort_by(|a, b| b.edge.evidence_count.cmp(&a.edge.evidence_count));
+        top_connections.sort_by_key(|c| std::cmp::Reverse(c.edge.evidence_count));
 
         Ok(CodeMap {
             path: path.to_string(),
