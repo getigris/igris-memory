@@ -1590,7 +1590,47 @@ impl IgrisServer {
         let result = match db.start_session(&args.id, &args.project, args.directory.as_deref()) {
             Ok(session) => {
                 end_data = serde_json::json!({ "id": session.id });
-                to_json(&session)
+                let response = to_json(&session);
+
+                if let Some(directory) = args.directory.as_deref() {
+                    let db_handle = self.db.clone();
+                    let project = args.project.clone();
+                    let root = std::path::PathBuf::from(directory);
+                    let peer_ctx = ctx.clone();
+                    let server = self.clone();
+                    tokio::spawn(async move {
+                        let summary = tokio::task::spawn_blocking(move || {
+                            let db = match db_handle.lock() {
+                                Ok(db) => db,
+                                Err(_) => return None,
+                            };
+                            Some(crate::codegraph::indexer::index_project(
+                                &db, &project, &root,
+                            ))
+                        })
+                        .await
+                        .ok()
+                        .flatten();
+
+                        if let Some(summary) = summary {
+                            server.notify_log(
+                                &peer_ctx,
+                                LoggingLevel::Info,
+                                "igris_session_start",
+                                "code_index",
+                                serde_json::json!({
+                                    "files_indexed": summary.files_indexed,
+                                    "files_unchanged": summary.files_unchanged,
+                                    "files_skipped_unsupported": summary.files_skipped_unsupported,
+                                    "files_failed_parse": summary.files_failed_parse,
+                                    "files_deleted": summary.files_deleted,
+                                }),
+                            );
+                        }
+                    });
+                }
+
+                response
             }
             Err(e) => {
                 tracing::warn!(tool = "igris_session_start", error = %e, "validation/db error");
