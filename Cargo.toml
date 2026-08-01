@@ -39,6 +39,7 @@ ureq = { version = "2", default-features = false }
 sqlite-vec = "0.1.9"
 ignore = "0.4.31"
 tree-sitter = "0.26.11"
+tree-sitter-rust = "0.24.2"
 
 [dev-dependencies]
 http-body-util = "0.1.3"
