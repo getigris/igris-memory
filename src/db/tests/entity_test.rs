@@ -1139,6 +1139,94 @@ fn merge_entities_preserves_direction_of_directed_edges() {
 }
 
 #[test]
+fn merge_entities_routes_co_mentioned_and_directed_edges_differently() {
+    use crate::store::BrainStore;
+    let db = Database::open_in_memory().unwrap();
+    // Create frank and eve first so their ids are lower than target's,
+    // which makes the min/max-ordered pair for co_mentioned edges differ
+    // from the direction-preserving pair used for other edge types.
+    let frank = db
+        .upsert_entity("person", "Frank", &[], None, "project")
+        .unwrap();
+    let eve = db
+        .upsert_entity("person", "Eve", &[], None, "project")
+        .unwrap();
+    let target = db
+        .upsert_entity("company", "Acme Corp", &[], None, "project")
+        .unwrap();
+    let source = db
+        .upsert_entity("company", "Acme Inc", &[], None, "project")
+        .unwrap();
+
+    // source -> eve, co_mentioned: must end up min/max-ordered on merge.
+    db.upsert_edge(source.id, eve.id, "co_mentioned").unwrap();
+    // source -> frank, employs: must preserve direction (target, frank) on merge.
+    db.upsert_edge(source.id, frank.id, "employs").unwrap();
+
+    db.merge_entities(source.id, target.id).unwrap();
+
+    let co_mentioned_pair: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM edges
+             WHERE src_entity_id = ?1 AND dst_entity_id = ?2 AND edge_type = 'co_mentioned'
+               AND deleted_at IS NULL",
+            rusqlite::params![eve.id, target.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        co_mentioned_pair, 1,
+        "co_mentioned edge must be stored min/max-ordered (eve, target)"
+    );
+
+    let co_mentioned_unordered: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM edges
+             WHERE src_entity_id = ?1 AND dst_entity_id = ?2 AND edge_type = 'co_mentioned'
+               AND deleted_at IS NULL",
+            rusqlite::params![target.id, eve.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        co_mentioned_unordered, 0,
+        "co_mentioned edge must not keep the direction-preserving (target, eve) order"
+    );
+
+    let employs_direction_preserved: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM edges
+             WHERE src_entity_id = ?1 AND dst_entity_id = ?2 AND edge_type = 'employs'
+               AND deleted_at IS NULL",
+            rusqlite::params![target.id, frank.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        employs_direction_preserved, 1,
+        "employs edge must preserve direction (target, frank), not min/max order"
+    );
+
+    let employs_min_max: i64 = db
+        .conn
+        .query_row(
+            "SELECT count(*) FROM edges
+             WHERE src_entity_id = ?1 AND dst_entity_id = ?2 AND edge_type = 'employs'
+               AND deleted_at IS NULL",
+            rusqlite::params![frank.id, target.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        employs_min_max, 0,
+        "employs edge must not be reordered to min/max (frank, target)"
+    );
+}
+
+#[test]
 fn merge_entities_into_self_is_rejected() {
     use crate::store::BrainStore;
     let db = Database::open_in_memory().unwrap();

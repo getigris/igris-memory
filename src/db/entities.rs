@@ -311,11 +311,7 @@ impl BrainStore for Database {
         // Co-occurrence edges between every distinct pair (stored src < dst).
         for i in 0..ids.len() {
             for j in (i + 1)..ids.len() {
-                let (a, b) = if ids[i] < ids[j] {
-                    (ids[i], ids[j])
-                } else {
-                    (ids[j], ids[i])
-                };
+                let (a, b) = (ids[i].min(ids[j]), ids[i].max(ids[j]));
                 self.upsert_edge(a, b, "co_mentioned")?;
             }
         }
