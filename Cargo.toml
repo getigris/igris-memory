@@ -37,6 +37,8 @@ ratatui = "0.29"
 crossterm = "0.28"
 ureq = { version = "2", default-features = false }
 sqlite-vec = "0.1.9"
+ignore = "0.4.31"
+tree-sitter = "0.26.11"
 
 [dev-dependencies]
 http-body-util = "0.1.3"

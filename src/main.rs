@@ -1,4 +1,5 @@
 mod cli;
+mod codegraph;
 mod db;
 mod embed;
 mod errors;
