@@ -1757,6 +1757,67 @@ impl IgrisServer {
         );
         result
     }
+
+    #[tool(
+        name = "igris_code_search",
+        description = "Find code nodes (files/symbols) by name or path substring. Use for structural questions — who calls/imports/depends on what. For free-text search inside file contents, use Grep/Glob instead; for knowledge about people/decisions/concepts, use igris_entity_search."
+    )]
+    fn igris_code_search(
+        &self,
+        Parameters(args): Parameters<CodeSearchArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
+        let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_code_search",
+            "start",
+            serde_json::json!({
+                "query_preview": args.query.chars().take(120).collect::<String>(),
+                "kind": args.kind,
+                "language": args.language,
+            }),
+        );
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let mut end_data = serde_json::json!({});
+        let result = match db.search_code_nodes(
+            &args.query,
+            args.kind.as_deref(),
+            args.language.as_deref(),
+            args.project.as_deref(),
+            args.limit.unwrap_or(20),
+        ) {
+            Ok(nodes) => {
+                end_data = serde_json::json!({ "results_count": nodes.len() });
+                to_json(&nodes)
+            }
+            Err(e) => {
+                tracing::warn!(tool = "igris_code_search", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_code_search",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
+                err_json(e)
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_code_search", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_code_search",
+            "end",
+            notify::with_duration(end_data, duration_ms),
+        );
+        result
+    }
 }
 
 #[tool_handler]

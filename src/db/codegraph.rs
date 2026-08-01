@@ -7,9 +7,10 @@ use crate::utils::now_utc;
 
 use super::{Database, DbResult, OptionalExt};
 
-// Not yet wired into `main`/`server` — Tasks 8 (indexer) and 10-13 (MCP query
-// tools) are the callers, and land in later tasks of this plan. Exercised by
-// `codegraph_tests` in the meantime.
+// `search_code_nodes` is wired into the `igris_code_search` MCP tool (Task 10).
+// The remaining methods (code_neighbors, code_path, code_map) are not yet
+// wired into `main`/`server` — Tasks 11-13 (MCP query tools) are their
+// callers. Exercised by `codegraph_tests` in the meantime.
 #[allow(dead_code)]
 impl Database {
     const CODE_FILE_COLS: &'static str =

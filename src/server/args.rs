@@ -303,6 +303,22 @@ pub struct EntityMergeArgs {
     pub target_id: i64,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CodeSearchArgs {
+    #[schemars(description = "Name or path substring to search for (case-insensitive).")]
+    pub query: String,
+    #[schemars(
+        description = "Filter by symbol kind: function, method, class, struct, etc. (omit for all)."
+    )]
+    pub kind: Option<String>,
+    #[schemars(description = "Filter by language: rust, python, typescript, etc. (omit for all).")]
+    pub language: Option<String>,
+    #[schemars(description = "Filter by project (omit for all).")]
+    pub project: Option<String>,
+    #[schemars(description = "Max results (default 20).")]
+    pub limit: Option<i64>,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

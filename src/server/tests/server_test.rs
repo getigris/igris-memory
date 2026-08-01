@@ -287,6 +287,85 @@ async fn get_tool_baseline_logs_no_progress() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn code_search_returns_indexed_symbol() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+
+    // Index a fixture file synchronously and directly through the indexer,
+    // bypassing the nondeterministic background-spawn path wired up by
+    // igris_session_start (Task 9) — this test only needs to prove the tool's
+    // query/response shape against known data, not the background timing.
+    let dir = tempfile::tempdir()?;
+    std::fs::write(
+        dir.path().join("fixture.rs"),
+        "pub fn distinctive_fixture_symbol() {}\n",
+    )?;
+    let summary = crate::codegraph::indexer::index_project(&db, "code-search-test", dir.path());
+    assert_eq!(summary.files_indexed, 1, "fixture file should be indexed");
+
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_code_search").with_arguments(obj(
+                serde_json::json!({
+                    "query": "distinctive_fixture_symbol",
+                    "project": "code-search-test",
+                }),
+            )),
+        )
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+
+    let response_json = serde_json::to_value(&response.content)?;
+    let text_content = response_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    assert!(
+        text_content.contains("\"name\": \"distinctive_fixture_symbol\""),
+        "expected fixture symbol name in response, got {text_content}"
+    );
+    assert!(
+        text_content.contains("\"kind\": \"function\""),
+        "expected symbol kind in response, got {text_content}"
+    );
+
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= 2
+    })
+    .await;
+    {
+        let logs = collected.logs.lock().unwrap();
+        assert_eq!(
+            logs.len(),
+            2,
+            "expected start+end log messages, got {logs:?}"
+        );
+        assert!(logs.iter().all(|m| m.level == LoggingLevel::Info));
+        assert_eq!(collected.progress.lock().unwrap().len(), 0);
+    }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn save_and_search_progress_only_with_embedder() -> anyhow::Result<()> {
     let db = Database::open_in_memory()?;
     let embedder = Arc::new(crate::embed::HashEmbedder::new(32));
