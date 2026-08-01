@@ -137,6 +137,22 @@ impl Database {
         Ok(hash)
     }
 
+    /// Finalizes `content_hash`/`indexed_at` for `file_id`. Used by the
+    /// indexer (Task 8) as the last step of a successful reindex: `upsert_code_file`
+    /// is called first with a hash that can never match real file content
+    /// (so an interrupted run is retried, not mistaken for unchanged), and
+    /// this method commits the real hash only once `replace_symbols_and_edges_for_file`
+    /// has also succeeded — keeping "stored hash matches disk" synonymous
+    /// with "symbols/edges are up to date too".
+    pub fn update_code_file_hash(&self, file_id: i64, content_hash: &str) -> DbResult<()> {
+        let now = now_utc();
+        self.conn.execute(
+            "UPDATE code_files SET content_hash = ?1, indexed_at = ?2 WHERE id = ?3",
+            params![content_hash, now, file_id],
+        )?;
+        Ok(())
+    }
+
     /// Replaces every symbol/edge belonging to `file_id` with the freshly
     /// extracted set. Symbols/edges are a derived cache scoped to one file's
     /// current content, so a hard delete-then-reinsert (inside a transaction)

@@ -46,12 +46,18 @@ pub fn index_project(db: &Database, project: &str, root: &Path) -> IndexSummary 
 
         let extraction = extractor.extract(&source);
 
+        // Persist the file row with a hash that can never equal a real
+        // content hash (empty string — `hash_content` always returns a
+        // non-empty SHA-256 hex digest). If this run dies before the real
+        // hash is committed below, `get_code_file_hash` won't match on the
+        // next run and the file gets reparsed instead of silently staying
+        // stale forever. See db::codegraph::update_code_file_hash.
         let code_file = match db.upsert_code_file(
             project,
             &root_path,
             &file.relative_path,
             file.language.as_str(),
-            &file.content_hash,
+            "",
         ) {
             Ok(f) => f,
             Err(_) => {
@@ -72,12 +78,30 @@ pub fn index_project(db: &Database, project: &str, root: &Path) -> IndexSummary 
             continue;
         }
 
+        if db
+            .update_code_file_hash(code_file.id, &file.content_hash)
+            .is_err()
+        {
+            summary.files_failed_parse += 1;
+            continue;
+        }
+
         summary.files_indexed += 1;
     }
 
-    summary.files_deleted = db
-        .soft_delete_missing_code_files(project, &root_path, &seen_paths)
-        .unwrap_or(0);
+    summary.files_deleted =
+        match db.soft_delete_missing_code_files(project, &root_path, &seen_paths) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(
+                    project = project,
+                    root_path = %root_path,
+                    error = %e,
+                    "soft-delete of missing code files failed"
+                );
+                0
+            }
+        };
 
     summary
 }
@@ -102,6 +126,32 @@ mod tests {
         let second = index_project(&db, "igris-memory", dir.path());
         assert_eq!(second.files_indexed, 0);
         assert_eq!(second.files_unchanged, 1);
+    }
+
+    #[test]
+    fn index_project_retries_file_that_failed_symbol_persist_on_next_run() {
+        let db = Database::open_in_memory().unwrap();
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
+
+        // Simulate `replace_symbols_and_edges_for_file` failing after the
+        // file row has already been upserted: drop the table it writes to,
+        // so its first statement errors and the transaction rolls back.
+        db.conn.execute_batch("DROP TABLE code_symbols;").unwrap();
+
+        let first = index_project(&db, "igris-memory", dir.path());
+        assert_eq!(first.files_failed_parse, 1);
+        assert_eq!(first.files_indexed, 0);
+
+        // Restore the table so the retry on the next run can succeed.
+        db.conn.execute_batch(crate::schema::SCHEMA_V5).unwrap();
+
+        let second = index_project(&db, "igris-memory", dir.path());
+        assert_eq!(
+            second.files_indexed, 1,
+            "a file whose symbol/edge persist failed must be reparsed, not treated as unchanged"
+        );
+        assert_eq!(second.files_unchanged, 0);
     }
 
     #[test]
