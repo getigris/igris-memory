@@ -1,4 +1,5 @@
 pub mod c;
+pub mod cpp;
 pub mod go;
 pub mod java;
 pub mod javascript;
@@ -13,6 +14,7 @@ use super::extractor::LanguageExtractorRegistry;
 #[allow(dead_code)]
 pub fn register_all(registry: &mut LanguageExtractorRegistry) {
     registry.register(Box::new(c::CExtractor));
+    registry.register(Box::new(cpp::CppExtractor));
     registry.register(Box::new(go::GoExtractor));
     registry.register(Box::new(java::JavaExtractor));
     registry.register(Box::new(javascript::JavaScriptExtractor));
