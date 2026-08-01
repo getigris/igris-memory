@@ -1,3 +1,4 @@
+mod codegraph;
 mod embeddings;
 mod entities;
 mod export;
@@ -158,6 +159,10 @@ mod tests;
 #[cfg(test)]
 #[path = "tests/entity_test.rs"]
 mod entity_tests;
+
+#[cfg(test)]
+#[path = "tests/codegraph_test.rs"]
+mod codegraph_tests;
 
 #[cfg(test)]
 #[path = "tests/embed_test.rs"]
