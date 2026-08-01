@@ -5,6 +5,7 @@ pub mod go;
 pub mod java;
 pub mod javascript;
 pub mod python;
+pub mod ruby;
 pub mod rust;
 pub mod typescript;
 
@@ -21,6 +22,7 @@ pub fn register_all(registry: &mut LanguageExtractorRegistry) {
     registry.register(Box::new(java::JavaExtractor));
     registry.register(Box::new(javascript::JavaScriptExtractor));
     registry.register(Box::new(python::PythonExtractor));
+    registry.register(Box::new(ruby::RubyExtractor));
     registry.register(Box::new(rust::RustExtractor));
     registry.register(Box::new(typescript::TypeScriptExtractor));
     registry.register(Box::new(typescript::TsxExtractor));

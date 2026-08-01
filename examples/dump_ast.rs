@@ -30,6 +30,7 @@ fn main() {
         "c" => tree_sitter_c::LANGUAGE.into(),
         "cpp" => tree_sitter_cpp::LANGUAGE.into(),
         "csharp" => tree_sitter_c_sharp::LANGUAGE.into(),
+        "ruby" => tree_sitter_ruby::LANGUAGE.into(),
         other => {
             eprintln!(
                 "unsupported language for dump_ast: {other} (add it to this match as you add its grammar dependency)"
