@@ -4,6 +4,7 @@ pub mod csharp;
 pub mod go;
 pub mod java;
 pub mod javascript;
+pub mod kotlin;
 pub mod php;
 pub mod python;
 pub mod ruby;
@@ -23,6 +24,7 @@ pub fn register_all(registry: &mut LanguageExtractorRegistry) {
     registry.register(Box::new(go::GoExtractor));
     registry.register(Box::new(java::JavaExtractor));
     registry.register(Box::new(javascript::JavaScriptExtractor));
+    registry.register(Box::new(kotlin::KotlinExtractor));
     registry.register(Box::new(php::PhpExtractor));
     registry.register(Box::new(python::PythonExtractor));
     registry.register(Box::new(ruby::RubyExtractor));

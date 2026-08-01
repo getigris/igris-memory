@@ -33,6 +33,7 @@ fn main() {
         "ruby" => tree_sitter_ruby::LANGUAGE.into(),
         "php" => tree_sitter_php::LANGUAGE_PHP_ONLY.into(),
         "swift" => tree_sitter_swift::LANGUAGE.into(),
+        "kotlin" => tree_sitter_kotlin_ng::LANGUAGE.into(),
         other => {
             eprintln!(
                 "unsupported language for dump_ast: {other} (add it to this match as you add its grammar dependency)"
