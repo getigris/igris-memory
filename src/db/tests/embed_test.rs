@@ -228,6 +228,73 @@ fn vector_search_ranks_by_cosine() {
 }
 
 #[test]
+fn vector_search_vec0_uses_full_candidate_k_window() {
+    use crate::embed::{Embedder, HashEmbedder};
+    let db = Database::open_in_memory_vec().unwrap();
+    let e = HashEmbedder::new(64);
+
+    // 64 "noise" observations whose embedding is set to the exact query vector
+    // (distance 0 -- the closest possible under any metric), all filed under a
+    // project that gets excluded by the post-filter. With the correct
+    // `candidate_k = (top_k.max(1) * 8).max(64)` = 160 for top_k = 20, the vec0
+    // KNN pool (`LIMIT candidate_k`) comfortably covers all 67 rows (64 noise +
+    // 3 targets), so the targets survive the project filter. A `*` -> `+`/`/`
+    // mutant collapses candidate_k to 64 -- exactly the noise count -- so the
+    // KNN pool is saturated by noise alone and every target observation is
+    // starved out of the candidate window before the project filter even runs.
+    let query = e.embed("shared query text").unwrap();
+    for i in 0..64 {
+        let noise = db
+            .save_observation(
+                &format!("noise-{i}"),
+                &format!("noise body {i}"),
+                "manual",
+                Some("noise-project"),
+                "project",
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        db.upsert_embedding("observation", noise.id, e.model(), &query)
+            .unwrap();
+    }
+
+    let mut target_ids = Vec::new();
+    for i in 0..3 {
+        let target = db
+            .save_observation(
+                &format!("target-{i}"),
+                &format!("target body {i}"),
+                "manual",
+                Some("target-project"),
+                "project",
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        db.upsert_embedding(
+            "observation",
+            target.id,
+            e.model(),
+            &e.embed(&format!("target body {i}")).unwrap(),
+        )
+        .unwrap();
+        target_ids.push(target.id);
+    }
+
+    let hits = db
+        .vector_search(&query, e.model(), None, Some("target-project"), 20)
+        .unwrap();
+    let ids: Vec<i64> = hits.iter().map(|(o, _)| o.id).collect();
+    assert_eq!(ids.len(), 3);
+    for id in target_ids {
+        assert!(ids.contains(&id));
+    }
+}
+
+#[test]
 fn hybrid_search_without_embedding_equals_fts() {
     let db = Database::open_in_memory().unwrap();
     db.save_observation(
@@ -312,6 +379,107 @@ fn hybrid_search_fuses_vector_hits() {
     assert!(ids.contains(&fts_hit.id));
     // fused rank score is populated (higher = better) and sorted descending
     assert!(hybrid[0].rank >= hybrid[hybrid.len() - 1].rank);
+}
+
+#[test]
+fn hybrid_search_rrf_score_is_exact_for_overlapping_hit() {
+    let db = Database::open_in_memory().unwrap();
+
+    // `a` outranks `b` in FTS for query "keyword": both contain it once, but
+    // `a`'s document is much shorter, so bm25's length normalization favors it.
+    let a = db
+        .save_observation("a", "keyword", "manual", None, "project", None, None, None)
+        .unwrap();
+    let b = db
+        .save_observation(
+            "b",
+            "keyword padding padding padding padding padding padding padding",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    // `c` never matches the FTS query at all -- vector-only hit.
+    let c = db
+        .save_observation(
+            "c",
+            "unrelated content",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+    // Pin down the FTS ordering this test depends on: a (rank 0), b (rank 1).
+    let fts = db.search("keyword", None, None, Some(10)).unwrap();
+    assert_eq!(
+        fts.iter().map(|r| r.observation.id).collect::<Vec<_>>(),
+        vec![a.id, b.id]
+    );
+
+    // `c` outranks `a` in the vector arm (cosine 1.0 vs ~0.707 against the
+    // query vector) -- so `a` also appears at vector rank 1, giving it
+    // contributions from BOTH RRF loops (lines 180 and 185).
+    db.upsert_embedding("observation", c.id, "hash-v1", &[1.0, 0.0])
+        .unwrap();
+    db.upsert_embedding("observation", a.id, "hash-v1", &[0.5, 0.5])
+        .unwrap();
+    let vec_hits = db
+        .vector_search(&[1.0, 0.0], "hash-v1", None, None, 10)
+        .unwrap();
+    assert_eq!(
+        vec_hits.iter().map(|(o, _)| o.id).collect::<Vec<_>>(),
+        vec![c.id, a.id]
+    );
+
+    let hybrid = db
+        .hybrid_search(
+            "keyword",
+            Some(&[1.0, 0.0]),
+            "hash-v1",
+            None,
+            None,
+            Some(10),
+        )
+        .unwrap();
+
+    const K: f64 = 60.0;
+    let rank_of = |id: i64| -> f64 { hybrid.iter().find(|r| r.observation.id == id).unwrap().rank };
+
+    // `a`: FTS rank 0 + vector rank 1 -- exercises both RRF accumulation lines
+    // for the same id, so their contributions must each be exactly right.
+    let expected_a = 1.0 / (K + 0.0 + 1.0) + 1.0 / (K + 1.0 + 1.0);
+    assert!(
+        (rank_of(a.id) - expected_a).abs() < 1e-9,
+        "a: got {}, expected {}",
+        rank_of(a.id),
+        expected_a
+    );
+
+    // `b`: FTS-only, rank 1 -- pins down line 180's formula in isolation
+    // (rank 0 alone can't distinguish `K + rank` from `K - rank`).
+    let expected_b = 1.0 / (K + 1.0 + 1.0);
+    assert!(
+        (rank_of(b.id) - expected_b).abs() < 1e-9,
+        "b: got {}, expected {}",
+        rank_of(b.id),
+        expected_b
+    );
+
+    // `c`: vector-only, rank 0 -- pins down line 185's formula in isolation.
+    let expected_c = 1.0 / (K + 0.0 + 1.0);
+    assert!(
+        (rank_of(c.id) - expected_c).abs() < 1e-9,
+        "c: got {}, expected {}",
+        rank_of(c.id),
+        expected_c
+    );
 }
 
 #[test]
