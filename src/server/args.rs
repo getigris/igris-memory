@@ -335,6 +335,20 @@ pub struct CodeNeighborsArgs {
     pub relation: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CodePathArgs {
+    #[schemars(description = "Starting node id.")]
+    pub from_id: i64,
+    #[schemars(description = "Starting node type: 'file' or 'symbol'.")]
+    pub from_type: String,
+    #[schemars(description = "Target node id.")]
+    pub to_id: i64,
+    #[schemars(description = "Target node type: 'file' or 'symbol'.")]
+    pub to_type: String,
+    #[schemars(description = "Maximum hops to search before giving up (default 6).")]
+    pub max_hops: Option<i64>,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

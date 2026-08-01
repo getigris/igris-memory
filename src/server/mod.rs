@@ -1880,6 +1880,70 @@ impl IgrisServer {
         );
         result
     }
+
+    #[tool(
+        name = "igris_code_path",
+        description = "Shortest path (BFS, capped at max_hops) between two code nodes (files/symbols). Returns the edge chain connecting them, or a clean 'not found' result if no path exists within the hop cap — not an error."
+    )]
+    fn igris_code_path(
+        &self,
+        Parameters(args): Parameters<CodePathArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
+        let start = Instant::now();
+        let max_hops = args.max_hops.unwrap_or(6);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_code_path",
+            "start",
+            serde_json::json!({
+                "from_type": args.from_type,
+                "from_id": args.from_id,
+                "to_type": args.to_type,
+                "to_id": args.to_id,
+                "max_hops": max_hops,
+            }),
+        );
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let mut end_data = serde_json::json!({});
+        let result = match db.code_path(
+            &args.from_type,
+            args.from_id,
+            &args.to_type,
+            args.to_id,
+            max_hops,
+        ) {
+            Ok(path) => {
+                end_data = serde_json::json!({ "found": path.is_some() });
+                to_json(&path)
+            }
+            Err(e) => {
+                tracing::warn!(tool = "igris_code_path", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_code_path",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
+                err_json(e)
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_code_path", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_code_path",
+            "end",
+            notify::with_duration(end_data, duration_ms),
+        );
+        result
+    }
 }
 
 #[tool_handler]

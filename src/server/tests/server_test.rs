@@ -479,6 +479,181 @@ async fn code_neighbors_returns_connected_symbol_and_edge() -> anyhow::Result<()
 }
 
 #[tokio::test]
+async fn code_path_finds_two_hop_chain_and_reports_not_found_when_disconnected()
+-> anyhow::Result<()> {
+    use crate::codegraph::{ExtractedEdge, ExtractedSymbol};
+
+    let db = Database::open_in_memory()?;
+
+    // Same rationale as `code_neighbors_returns_connected_symbol_and_edge`:
+    // the real extractor never sets `src_qualified_name`, so this test seeds
+    // genuine symbol-to-symbol edges directly via `replace_symbols_and_edges_for_file`
+    // to build a real multi-hop chain: chain_a -> chain_b -> chain_c, spanning
+    // two files. `chain_b`/`chain_c` are inserted first so that `chain_a`'s
+    // edge (added in the second call) resolves against an already-committed
+    // `chain_b` symbol.
+    let file_bc = db.upsert_code_file("code-path-test", "/repo", "src/bc.rs", "rust", "h-bc")?;
+    let bc_symbols = vec![
+        ExtractedSymbol {
+            kind: "function".into(),
+            name: "chain_b".into(),
+            qualified_name: "chain_b".into(),
+            start_line: 1,
+            end_line: 1,
+        },
+        ExtractedSymbol {
+            kind: "function".into(),
+            name: "chain_c".into(),
+            qualified_name: "chain_c".into(),
+            start_line: 3,
+            end_line: 3,
+        },
+    ];
+    let bc_edges = vec![ExtractedEdge {
+        relation: "calls".into(),
+        src_qualified_name: Some("chain_b".into()),
+        dst_name: "chain_c".into(),
+        resolution: "heuristic".into(),
+        external_boundary: false,
+    }];
+    db.replace_symbols_and_edges_for_file(file_bc.id, &bc_symbols, &bc_edges)?;
+
+    let file_a = db.upsert_code_file("code-path-test", "/repo", "src/a.rs", "rust", "h-a")?;
+    let a_symbols = vec![ExtractedSymbol {
+        kind: "function".into(),
+        name: "chain_a".into(),
+        qualified_name: "chain_a".into(),
+        start_line: 1,
+        end_line: 1,
+    }];
+    let a_edges = vec![ExtractedEdge {
+        relation: "calls".into(),
+        src_qualified_name: Some("chain_a".into()),
+        dst_name: "chain_b".into(),
+        resolution: "heuristic".into(),
+        external_boundary: false,
+    }];
+    db.replace_symbols_and_edges_for_file(file_a.id, &a_symbols, &a_edges)?;
+
+    // An unrelated, disconnected symbol to exercise the "no path found" case.
+    let file_iso = db.upsert_code_file("code-path-test", "/repo", "src/iso.rs", "rust", "h-iso")?;
+    let iso_symbols = vec![ExtractedSymbol {
+        kind: "function".into(),
+        name: "isolated_node".into(),
+        qualified_name: "isolated_node".into(),
+        start_line: 1,
+        end_line: 1,
+    }];
+    db.replace_symbols_and_edges_for_file(file_iso.id, &iso_symbols, &[])?;
+
+    let find_id = |name: &str| -> anyhow::Result<i64> {
+        let nodes = db.search_code_nodes(name, None, None, Some("code-path-test"), 10)?;
+        anyhow::ensure!(nodes.len() == 1, "expected exactly one `{name}` symbol");
+        let crate::models::CodeNode::Symbol(sym) = &nodes[0] else {
+            anyhow::bail!("expected a symbol node for `{name}`");
+        };
+        Ok(sym.id)
+    };
+    let chain_a_id = find_id("chain_a")?;
+    let chain_c_id = find_id("chain_c")?;
+    let isolated_id = find_id("isolated_node")?;
+
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    // chain_a -> chain_c should resolve as a real 2-hop path through chain_b.
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_code_path").with_arguments(obj(serde_json::json!({
+                "from_id": chain_a_id,
+                "from_type": "symbol",
+                "to_id": chain_c_id,
+                "to_type": "symbol",
+            }))),
+        )
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+
+    let response_json = serde_json::to_value(&response.content)?;
+    let text_content = response_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    let path: Vec<serde_json::Value> = serde_json::from_str(text_content)?;
+    assert_eq!(
+        path.len(),
+        2,
+        "expected a 2-edge path (chain_a->chain_b->chain_c), got {text_content}"
+    );
+    assert!(path.iter().all(|hop| hop["edge"]["relation"] == "calls"));
+    assert_eq!(path[0]["node"]["name"], "chain_b");
+    assert_eq!(path[1]["node"]["name"], "chain_c");
+    assert_eq!(path[1]["node"]["node_type"], "symbol");
+
+    // chain_a -> isolated_node has no connecting edges at all: this must
+    // come back as a clean "not found" result (JSON null), not an error.
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("igris_code_path").with_arguments(obj(serde_json::json!({
+                "from_id": chain_a_id,
+                "from_type": "symbol",
+                "to_id": isolated_id,
+                "to_type": "symbol",
+            }))),
+        )
+        .await?;
+    assert_ne!(response.is_error, Some(true));
+
+    let response_json = serde_json::to_value(&response.content)?;
+    let text_content = response_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    assert_eq!(
+        text_content.trim(),
+        "null",
+        "expected a clean JSON null for the disconnected case, got {text_content}"
+    );
+
+    wait_until(&signal, Duration::from_secs(2), || {
+        collected.logs.lock().unwrap().len() >= 4
+    })
+    .await;
+    {
+        let logs = collected.logs.lock().unwrap();
+        assert_eq!(
+            logs.len(),
+            4,
+            "expected two start+end pairs (one per call), got {logs:?}"
+        );
+        assert!(
+            logs.iter().all(|m| m.level == LoggingLevel::Info),
+            "no error-level logs expected for the not-found case: {logs:?}"
+        );
+        assert_eq!(collected.progress.lock().unwrap().len(), 0);
+    }
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn save_and_search_progress_only_with_embedder() -> anyhow::Result<()> {
     let db = Database::open_in_memory()?;
     let embedder = Arc::new(crate::embed::HashEmbedder::new(32));
