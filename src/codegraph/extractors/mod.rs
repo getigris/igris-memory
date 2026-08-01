@@ -8,6 +8,7 @@ pub mod php;
 pub mod python;
 pub mod ruby;
 pub mod rust;
+pub mod swift;
 pub mod typescript;
 
 use super::extractor::LanguageExtractorRegistry;
@@ -26,6 +27,7 @@ pub fn register_all(registry: &mut LanguageExtractorRegistry) {
     registry.register(Box::new(python::PythonExtractor));
     registry.register(Box::new(ruby::RubyExtractor));
     registry.register(Box::new(rust::RustExtractor));
+    registry.register(Box::new(swift::SwiftExtractor));
     registry.register(Box::new(typescript::TypeScriptExtractor));
     registry.register(Box::new(typescript::TsxExtractor));
 }
