@@ -1,3 +1,4 @@
+pub mod c;
 pub mod go;
 pub mod java;
 pub mod javascript;
@@ -11,6 +12,7 @@ use super::extractor::LanguageExtractorRegistry;
 /// the indexer (Task 8). Each language task in this plan adds one line here.
 #[allow(dead_code)]
 pub fn register_all(registry: &mut LanguageExtractorRegistry) {
+    registry.register(Box::new(c::CExtractor));
     registry.register(Box::new(go::GoExtractor));
     registry.register(Box::new(java::JavaExtractor));
     registry.register(Box::new(javascript::JavaScriptExtractor));

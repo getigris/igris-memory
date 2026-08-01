@@ -27,6 +27,7 @@ fn main() {
         "python" => tree_sitter_python::LANGUAGE.into(),
         "go" => tree_sitter_go::LANGUAGE.into(),
         "java" => tree_sitter_java::LANGUAGE.into(),
+        "c" => tree_sitter_c::LANGUAGE.into(),
         other => {
             eprintln!(
                 "unsupported language for dump_ast: {other} (add it to this match as you add its grammar dependency)"

@@ -45,6 +45,7 @@ tree-sitter-typescript = "0.23.2"
 tree-sitter-python = "0.25.0"
 tree-sitter-go = "0.23.2"
 tree-sitter-java = "0.23.5"
+tree-sitter-c = "0.24.2"
 
 [dev-dependencies]
 http-body-util = "0.1.3"
