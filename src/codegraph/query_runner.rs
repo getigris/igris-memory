@@ -14,9 +14,13 @@ pub struct QuerySpec<'a> {
 
 /// Parses `source` with `spec.ts_language`, runs `spec.query_src` against the
 /// tree, and folds every `@name.function`/`@name.call`/`@name.import`
-/// capture into an `ExtractionResult`. Never panics on malformed input or a
-/// query that fails to compile — both degrade to an empty result, since a
-/// syntax error in one file should never take down the rest of an index run.
+/// capture into an `ExtractionResult`. A symbol's line range comes from the
+/// match's `@definition.*` capture (the whole definition), falling back to the
+/// `@name.*` identifier token if a query emits no wrapper capture.
+///
+/// Never panics on malformed input or a query that fails to compile — both
+/// degrade to an empty result, since a syntax error in one file should never
+/// take down the rest of an index run.
 pub fn run_query(source: &str, spec: &QuerySpec) -> ExtractionResult {
     let mut parser = Parser::new();
     if parser.set_language(&spec.ts_language).is_err() {
@@ -33,6 +37,21 @@ pub fn run_query(source: &str, spec: &QuerySpec) -> ExtractionResult {
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
     while let Some(m) = matches.next() {
+        // Every `.scm` file wraps its `@name.function` capture in a
+        // `@definition.function` capture spanning the whole definition. The
+        // name capture is only the identifier token, so its line range is
+        // always a single line — the wrapper's range is the symbol's real
+        // body span.
+        let definition_range = m.captures.iter().find_map(|c| {
+            let capture_name = query.capture_names()[c.index as usize];
+            capture_name.starts_with("definition.").then(|| {
+                (
+                    c.node.start_position().row as i64 + 1,
+                    c.node.end_position().row as i64 + 1,
+                )
+            })
+        });
+
         for capture in m.captures {
             let capture_name = query.capture_names()[capture.index as usize];
             let text = capture
@@ -44,13 +63,16 @@ pub fn run_query(source: &str, spec: &QuerySpec) -> ExtractionResult {
             let end_line = capture.node.end_position().row as i64 + 1;
 
             match capture_name {
-                "name.function" => result.symbols.push(ExtractedSymbol {
-                    kind: spec.function_symbol_kind.to_string(),
-                    name: text.clone(),
-                    qualified_name: text,
-                    start_line,
-                    end_line,
-                }),
+                "name.function" => {
+                    let (start_line, end_line) = definition_range.unwrap_or((start_line, end_line));
+                    result.symbols.push(ExtractedSymbol {
+                        kind: spec.function_symbol_kind.to_string(),
+                        name: text.clone(),
+                        qualified_name: text,
+                        start_line,
+                        end_line,
+                    })
+                }
                 // `resolution: "heuristic"` — this runner does no scope
                 // resolution (it can't tell a local call from a call to a
                 // same-named symbol in another file). True "static"
