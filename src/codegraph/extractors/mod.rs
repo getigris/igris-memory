@@ -1,3 +1,4 @@
+pub mod javascript;
 pub mod rust;
 
 use super::extractor::LanguageExtractorRegistry;
@@ -6,5 +7,6 @@ use super::extractor::LanguageExtractorRegistry;
 /// the indexer (Task 8). Each language task in this plan adds one line here.
 #[allow(dead_code)]
 pub fn register_all(registry: &mut LanguageExtractorRegistry) {
+    registry.register(Box::new(javascript::JavaScriptExtractor));
     registry.register(Box::new(rust::RustExtractor));
 }

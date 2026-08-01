@@ -21,6 +21,7 @@ fn main() {
     let mut parser = tree_sitter::Parser::new();
     let language = match language_name.as_str() {
         "rust" => tree_sitter_rust::LANGUAGE.into(),
+        "javascript" => tree_sitter_javascript::LANGUAGE.into(),
         other => {
             eprintln!(
                 "unsupported language for dump_ast: {other} (add it to this match as you add its grammar dependency)"
