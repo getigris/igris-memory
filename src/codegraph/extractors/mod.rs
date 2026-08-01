@@ -1,5 +1,6 @@
 pub mod javascript;
 pub mod rust;
+pub mod typescript;
 
 use super::extractor::LanguageExtractorRegistry;
 
@@ -9,4 +10,6 @@ use super::extractor::LanguageExtractorRegistry;
 pub fn register_all(registry: &mut LanguageExtractorRegistry) {
     registry.register(Box::new(javascript::JavaScriptExtractor));
     registry.register(Box::new(rust::RustExtractor));
+    registry.register(Box::new(typescript::TypeScriptExtractor));
+    registry.register(Box::new(typescript::TsxExtractor));
 }
