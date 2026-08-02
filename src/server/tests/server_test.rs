@@ -817,14 +817,22 @@ async fn save_and_search_progress_only_with_embedder() -> anyhow::Result<()> {
     .serve(client_transport)
     .await?;
 
-    client
-        .call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+    // `HashEmbedder::embed` runs inside the spawned server task on save/search.
+    // If it panics (e.g. a mutation-testing mutant makes it index out of
+    // bounds), the server task dies mid-request and this `.await` would
+    // otherwise hang forever instead of failing — bound it with a timeout so
+    // a broken embedder fails the test instead of hanging the whole suite.
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
             serde_json::json!({
                 "title": "test",
                 "content": "hello world",
             }),
-        )))
-        .await?;
+        ))),
+    )
+    .await
+    .expect("igris_save timed out — server task likely panicked (e.g. in HashEmbedder::embed)")?;
     wait_until(&signal, Duration::from_secs(2), || {
         collected.progress.lock().unwrap().len() >= 2
     })
@@ -840,12 +848,15 @@ async fn save_and_search_progress_only_with_embedder() -> anyhow::Result<()> {
     }
     collected.progress.lock().unwrap().clear();
 
-    client
-        .call_tool(
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
             CallToolRequestParams::new("igris_search")
                 .with_arguments(obj(serde_json::json!({ "query": "hello" }))),
-        )
-        .await?;
+        ),
+    )
+    .await
+    .expect("igris_search timed out — server task likely panicked (e.g. in HashEmbedder::embed)")?;
     wait_until(&signal, Duration::from_secs(2), || {
         collected.progress.lock().unwrap().len() >= 2
     })

@@ -27,9 +27,24 @@ cargo test --test db_test      # Run a specific test file
 cargo clippy -- -D warnings    # Lint (warnings = errors)
 cargo fmt --check              # Check formatting
 cargo fmt                      # Auto-format
+cargo mutants --file <path>    # Mutation-test a single file (a few minutes)
 ```
 
 Pre-commit hooks (`.githooks/`) run `fmt --check`, `clippy`, and `test` automatically before each commit.
+
+### Mutation testing
+
+CI runs a mutation-testing gate (`cargo mutants --in-diff diff.txt --in-place`, see `.github/workflows/ci.yml`) that fails a PR if it introduces code with no test able to detect a behavioral mutation (e.g. flipping `<` to `<=`, or `+=` to `-=`). Before pushing, check your own diff locally with the much faster scoped form:
+
+```bash
+cargo mutants --file src/your_changed_file.rs
+```
+
+`.cargo/mutants.toml` sets `exclude_globs` for files with nothing meaningful to mutate (e.g. `src/tui/ui.rs`'s rendering code, generated-shape extractor tables) — don't add entries there to work around a real gap in test coverage.
+
+A non-zero exit code fails the CI step exactly the same way whether it's exit code 2 (a mutant survived) or exit code 3 (a mutation run timed out) — a hanging test is just as gate-blocking as an uncaught mutant, so a test that can hang under a plausible mutation (e.g. an `await` on a channel/response that never arrives if the code under test panics) needs its own bounded timeout, not just a correctness assertion.
+
+For a mutation that is genuinely equivalent — no test could ever observe a behavioral difference for any real input — prefer restructuring the code to remove the ambiguous operator entirely (e.g. `a.min(b)`/`a.max(b)` instead of `if a < b {...} else {...}` when the values are guaranteed distinct) over skipping it. Only reach for `#[cfg_attr(test, mutants::skip)]` (never a bare `#[mutants::skip]` — `mutants` is a dev-only dependency, so a bare attribute breaks `cargo build --release`) when no such restructuring is possible, e.g. a process entrypoint like `main()`, or an idempotent migration-version gate where re-running a migration is a genuine no-op.
 
 ## Architecture
 

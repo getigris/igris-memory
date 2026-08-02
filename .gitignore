@@ -48,3 +48,7 @@ coverage/
 
 # Local-only design/spec docs (not committed)
 /docs/superpowers/
+
+# Mutation-testing scratch artifacts (cargo mutants / CI mutation gate)
+mutants.out*/
+/diff.txt

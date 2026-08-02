@@ -542,8 +542,15 @@ async fn server_with_embedder_embeds_on_save_and_search_hybrid() -> anyhow::Resu
     let client = NoOpClient.serve(client_transport).await?;
 
     // save → an embedding row is created for this observation under model "hash-v1"
-    let save_response = client
-        .call_tool(
+    //
+    // `HashEmbedder::embed` runs inside the spawned server task. If it panics
+    // (e.g. a mutation-testing mutant makes it index out of bounds), the server
+    // task dies mid-request and this `.await` would otherwise hang forever
+    // instead of failing — bound it with a timeout so a broken embedder fails
+    // the test instead of hanging the whole suite.
+    let save_response = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        client.call_tool(
             CallToolRequestParams::new("igris_save").with_arguments(
                 serde_json::json!({
                     "title": "t",
@@ -555,8 +562,10 @@ async fn server_with_embedder_embeds_on_save_and_search_hybrid() -> anyhow::Resu
                 .unwrap()
                 .clone(),
             ),
-        )
-        .await?;
+        ),
+    )
+    .await
+    .expect("igris_save timed out — server task likely panicked (e.g. in HashEmbedder::embed)")?;
     assert_ne!(
         save_response.is_error,
         Some(true),
@@ -564,17 +573,21 @@ async fn server_with_embedder_embeds_on_save_and_search_hybrid() -> anyhow::Resu
         save_response.content
     );
 
-    // search returns a non-error result (hybrid path exercised)
-    let search_response = client
-        .call_tool(
+    // search returns a non-error result (hybrid path exercised); same hang risk
+    // as above since the hybrid path also calls into the embedder.
+    let search_response = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        client.call_tool(
             CallToolRequestParams::new("igris_search").with_arguments(
                 serde_json::json!({ "query": "alpha" })
                     .as_object()
                     .unwrap()
                     .clone(),
             ),
-        )
-        .await?;
+        ),
+    )
+    .await
+    .expect("igris_search timed out — server task likely panicked (e.g. in HashEmbedder::embed)")?;
     assert_ne!(
         search_response.is_error,
         Some(true),

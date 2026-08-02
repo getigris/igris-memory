@@ -29,7 +29,7 @@ pub(crate) struct EmbedRunSummary {
 /// Runs the embed backfill loop against every observation missing an
 /// embedding for `embedder.model()`. Extracted from `main()` so it's
 /// unit-testable without spawning the process.
-pub(crate) fn run_embed_backfill(
+fn run_embed_backfill(
     db: &Database,
     embedder: &dyn crate::embed::Embedder,
 ) -> anyhow::Result<EmbedRunSummary> {
@@ -50,7 +50,7 @@ pub(crate) fn run_embed_backfill(
 
 /// Whether `igmem embed --rebuild-index` should actually rebuild the vec0
 /// index: only when the flag was passed AND the vector index is enabled.
-pub(crate) fn should_rebuild_index(rebuild_index: bool, vector_index_enabled: bool) -> bool {
+fn should_rebuild_index(rebuild_index: bool, vector_index_enabled: bool) -> bool {
     rebuild_index && vector_index_enabled
 }
 
