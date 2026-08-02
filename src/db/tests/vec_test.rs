@@ -156,6 +156,82 @@ fn vec_index_rebuild_repopulates_from_embeddings() {
     assert_eq!(count, 2);
 }
 
+#[test]
+fn vec_index_ensure_resets_table_when_dim_or_model_changes() {
+    let db = Database::open_in_memory_vec().unwrap();
+    db.vec_index_ensure(3, "model-a").unwrap();
+    db.vec_index_upsert(1, "model-a", &[0.1, 0.2, 0.3]).unwrap();
+    let count_before: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM embeddings_vec", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count_before, 1);
+
+    // Different dim, same model — must reset (not no-op).
+    db.vec_index_ensure(5, "model-a").unwrap();
+    let count_after_dim_change: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM embeddings_vec", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        count_after_dim_change, 0,
+        "changing dim (same model) must drop and recreate embeddings_vec"
+    );
+    let (dim, model): (i64, String) = db
+        .conn
+        .query_row(
+            "SELECT dim, model FROM vec_index_meta WHERE id = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(dim, 5);
+    assert_eq!(model, "model-a");
+
+    // Repopulate at the new dim, then change model (same dim) — must also reset.
+    db.vec_index_upsert(2, "model-a", &[0.0, 0.0, 0.0, 0.0, 0.0])
+        .unwrap();
+    let count_repopulated: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM embeddings_vec", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count_repopulated, 1);
+
+    db.vec_index_ensure(5, "model-b").unwrap();
+    let count_after_model_change: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM embeddings_vec", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        count_after_model_change, 0,
+        "changing model (same dim) must drop and recreate embeddings_vec"
+    );
+    let (dim2, model2): (i64, String) = db
+        .conn
+        .query_row(
+            "SELECT dim, model FROM vec_index_meta WHERE id = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(dim2, 5);
+    assert_eq!(model2, "model-b");
+
+    // Calling with the exact same (dim, model) again must be a true no-op:
+    // the row inserted just before stays put.
+    db.vec_index_upsert(3, "model-b", &[0.0, 0.0, 0.0, 0.0, 0.0])
+        .unwrap();
+    db.vec_index_ensure(5, "model-b").unwrap();
+    let count_after_noop: i64 = db
+        .conn
+        .query_row("SELECT count(*) FROM embeddings_vec", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        count_after_noop, 1,
+        "matching (dim, model) must be a no-op and preserve existing rows"
+    );
+}
+
 /// Proves that `vector_search` actually takes the vec0 branch (not the
 /// brute-force fallback) when the vector index is enabled: it JOINs against
 /// `embeddings_vec` (via the `knn` CTE), so an observation with a durable
