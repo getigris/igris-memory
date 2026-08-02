@@ -174,3 +174,7 @@ mod embed_tests;
 #[cfg(test)]
 #[path = "tests/vec_test.rs"]
 mod vec_tests;
+
+#[cfg(test)]
+#[path = "tests/export_test.rs"]
+mod export_tests;
