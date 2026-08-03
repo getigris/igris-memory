@@ -1548,15 +1548,23 @@ async fn igris_save_wires_mentions_when_present() -> anyhow::Result<()> {
     .serve(client_transport)
     .await?;
 
-    let save_response = client
-        .call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+    // `record_mentions` runs inside the spawned server task on save. If it
+    // panics (e.g. a mutation-testing mutant makes it index out of bounds),
+    // the server task dies mid-request and this `.await` would otherwise
+    // hang forever instead of failing — bound it with a timeout so a broken
+    // mentions pipeline fails the test instead of hanging the whole suite.
+    let save_response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
             serde_json::json!({
                 "title": "mentions test",
                 "content": "content about someone",
                 "mentions": ["Mentioned Person"],
             }),
-        )))
-        .await?;
+        ))),
+    )
+    .await
+    .expect("igris_save timed out — server task likely panicked (e.g. in record_mentions)")?;
     assert_ne!(
         save_response.is_error,
         Some(true),
