@@ -47,6 +47,14 @@ cargo test                     # All tests pass
 
 Pre-commit hooks enforce this automatically if configured via `git config core.hooksPath .githooks`.
 
+CI also runs a mutation-testing gate (`cargo mutants --in-diff diff.txt --in-place`) that fails a PR if it introduces code with no test capable of detecting a behavioral mutation. Check your own diff before pushing with the fast, scoped local equivalent (a few minutes, vs. CI's much longer full-diff run):
+
+```bash
+cargo mutants --file <path>
+```
+
+`.cargo/mutants.toml` controls `exclude_globs`, for files with nothing meaningful to mutate (e.g. `src/tui/ui.rs`'s rendering code). If you find a mutant you believe is genuinely equivalent (no test could ever observe a behavioral difference), prefer restructuring the code to remove the ambiguous operator (e.g. `.min()`/`.max()` instead of `if a < b {...} else {...}` when the values are guaranteed distinct) over skipping it. Reserve `#[cfg_attr(test, mutants::skip)]` — never a bare `#[mutants::skip]`, since `mutants` is a dev-only dependency and a bare attribute breaks `cargo build --release` — for cases where no such restructuring is possible, e.g. a process entrypoint like `main()` or an idempotent migration-version gate. Note that `cargo mutants` exit code 3 (a run timed out) fails the CI step exactly like exit code 2 (a mutant survived) — a test that can hang under a plausible mutation is just as gate-blocking as one that can't catch it.
+
 ### Commit Messages
 
 Write clear, descriptive commit messages:
@@ -82,6 +90,7 @@ cargo test --test db_test
 
 - Rebase on latest `main` to avoid conflicts
 - Ensure all checks pass locally (`fmt`, `clippy`, `test`)
+- Run `cargo mutants --file <path>` on the file(s) you changed to catch gaps the CI mutation-testing gate would otherwise flag
 - Keep PRs focused — one feature or fix per PR
 
 ### PR Description

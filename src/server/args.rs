@@ -29,6 +29,10 @@ pub struct SaveArgs {
     pub tags: Option<Vec<String>>,
     #[schemars(description = "Session ID to associate this memory with")]
     pub session_id: Option<String>,
+    #[schemars(
+        description = "Entities this memory is about (names or aliases, e.g. ['Acme Corp', 'Jane Doe']). Unknown names are auto-created as stub entities; co-mentioned entities are linked automatically."
+    )]
+    pub mentions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -146,6 +150,213 @@ pub struct SessionSummaryArgs {
     pub content: String,
     #[schemars(description = "Project name")]
     pub project: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityUpsertArgs {
+    #[schemars(
+        description = "Entity kind: person, company, project, concept, place, product, or other."
+    )]
+    pub kind: String,
+    #[schemars(description = "Canonical display name (e.g. 'Jane Doe', 'Acme Corp').")]
+    pub name: String,
+    #[schemars(
+        description = "Alternate names/aliases that should resolve to this entity (e.g. ['JD', 'Jane'])."
+    )]
+    pub aliases: Option<Vec<String>>,
+    #[schemars(description = "Project this entity belongs to (omit for global).")]
+    pub project: Option<String>,
+    #[schemars(description = "Visibility scope: 'project' (default) or 'personal'.")]
+    #[serde(default = "default_scope")]
+    pub scope: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityGetArgs {
+    #[schemars(description = "Entity id to fetch. Provide this OR slug.")]
+    pub id: Option<i64>,
+    #[schemars(description = "Entity slug to fetch (e.g. 'jane-doe'). Provide this OR id.")]
+    pub slug: Option<String>,
+    #[schemars(description = "Project to scope the slug lookup (omit for global).")]
+    pub project: Option<String>,
+    #[schemars(
+        description = "Visibility scope for the slug lookup: 'project' (default) or 'personal'."
+    )]
+    #[serde(default = "default_scope")]
+    pub scope: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityUpdateArgs {
+    #[schemars(description = "Entity id to update.")]
+    pub id: i64,
+    #[schemars(
+        description = "New kind: person, company, project, concept, place, product, or other (only if changing)."
+    )]
+    pub kind: Option<String>,
+    #[schemars(description = "New tier (only if changing).")]
+    pub tier: Option<i32>,
+    #[schemars(description = "New salience score (only if changing).")]
+    pub salience: Option<f64>,
+    #[schemars(
+        description = "Additional aliases/alternate names to register for this entity (does not replace existing aliases)."
+    )]
+    pub add_aliases: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityLinkArgs {
+    #[schemars(description = "Source entity id (from igris_entity_upsert/get).")]
+    pub src_id: i64,
+    #[schemars(description = "Destination entity id.")]
+    pub dst_id: i64,
+    #[schemars(
+        description = "Relation type, e.g. 'works_at', 'founded', 'related_to'. Creates or strengthens the edge."
+    )]
+    pub relation: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityNeighborsArgs {
+    #[schemars(description = "Entity id whose neighbors to fetch.")]
+    pub entity_id: i64,
+    #[schemars(description = "Max neighbors to return (default 20).")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityTimelineArgs {
+    #[schemars(description = "Entity id whose timeline (mentioning observations) to fetch.")]
+    pub entity_id: i64,
+    #[schemars(description = "Max observations to return, most recent first (default 20).")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BriefArgs {
+    #[schemars(description = "Entity id to brief. Provide this OR slug.")]
+    pub id: Option<i64>,
+    #[schemars(description = "Entity slug to brief (e.g. 'acme'). Provide this OR id.")]
+    pub slug: Option<String>,
+    #[schemars(description = "Project to scope the slug lookup (omit for global).")]
+    pub project: Option<String>,
+    #[schemars(
+        description = "Visibility scope for the slug lookup: 'project' (default) or 'personal'."
+    )]
+    #[serde(default = "default_scope")]
+    pub scope: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntitySearchArgs {
+    #[schemars(description = "Name or alias to search for (substring match, case-insensitive).")]
+    pub query: String,
+    #[schemars(
+        description = "Filter by kind: person, company, project, concept, place, product, other."
+    )]
+    pub kind: Option<String>,
+    #[schemars(description = "Filter by project (omit for all).")]
+    pub project: Option<String>,
+    #[schemars(description = "Filter by scope: 'project' or 'personal' (omit for all).")]
+    pub scope: Option<String>,
+    #[schemars(description = "Max results (default 20).")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityListArgs {
+    #[schemars(description = "Filter by kind (omit for all kinds).")]
+    pub kind: Option<String>,
+    #[schemars(description = "Filter by project (omit for all).")]
+    pub project: Option<String>,
+    #[schemars(description = "Filter by scope: 'project' or 'personal' (omit for all).")]
+    pub scope: Option<String>,
+    #[schemars(description = "Max results, most recently updated first (default 20).")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityDeleteArgs {
+    #[schemars(description = "Entity id to soft-delete.")]
+    pub id: i64,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityUnlinkArgs {
+    #[schemars(description = "One endpoint entity id.")]
+    pub src_id: i64,
+    #[schemars(description = "Other endpoint entity id.")]
+    pub dst_id: i64,
+    #[schemars(description = "Relation type to remove, e.g. 'co_mentioned', 'works_at'.")]
+    pub relation: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EntityMergeArgs {
+    #[schemars(
+        description = "Duplicate entity id to fold into target. Its aliases, mentions, and edges move to target; it is then soft-deleted."
+    )]
+    pub source_id: i64,
+    #[schemars(
+        description = "Entity id that survives the merge and keeps its identity (id/slug)."
+    )]
+    pub target_id: i64,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CodeSearchArgs {
+    #[schemars(description = "Name or path substring to search for (case-insensitive).")]
+    pub query: String,
+    #[schemars(
+        description = "Filter by symbol kind: function, method, class, struct, etc. (omit for all)."
+    )]
+    pub kind: Option<String>,
+    #[schemars(description = "Filter by language: rust, python, typescript, etc. (omit for all).")]
+    pub language: Option<String>,
+    #[schemars(description = "Filter by project (omit for all).")]
+    pub project: Option<String>,
+    #[schemars(description = "Max results (default 20).")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CodeNeighborsArgs {
+    #[schemars(description = "Node id to inspect.")]
+    pub node_id: i64,
+    #[schemars(description = "Node type: 'file' or 'symbol'.")]
+    pub node_type: String,
+    #[schemars(
+        description = "How many hops to traverse, breadth-first (default 1, minimum 1). Results are ordered by hop distance and each edge appears at most once."
+    )]
+    pub hops: Option<i64>,
+    #[schemars(description = "Direction: 'in', 'out', or 'both' (default 'both').")]
+    pub direction: Option<String>,
+    #[schemars(
+        description = "Filter by relation (omit for all). Only 'imports' and 'calls' are produced by the current extractors; 'defines'/'references' are reserved for a future extractor and match nothing today."
+    )]
+    pub relation: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CodeMapArgs {
+    #[schemars(description = "Project name (as passed to igris_session_start).")]
+    pub project: String,
+    #[schemars(description = "File path relative to the indexed root, e.g. 'src/db/entities.rs'.")]
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CodePathArgs {
+    #[schemars(description = "Starting node id.")]
+    pub from_id: i64,
+    #[schemars(description = "Starting node type: 'file' or 'symbol'.")]
+    pub from_type: String,
+    #[schemars(description = "Target node id.")]
+    pub to_id: i64,
+    #[schemars(description = "Target node type: 'file' or 'symbol'.")]
+    pub to_type: String,
+    #[schemars(description = "Maximum hops to search before giving up (default 6).")]
+    pub max_hops: Option<i64>,
 }
 
 pub fn default_type() -> String {

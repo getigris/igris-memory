@@ -197,3 +197,36 @@ fn cli_sync_import_parses() {
         _ => panic!("expected Sync Import"),
     }
 }
+
+#[test]
+fn vector_index_flag_defaults_to_brute() {
+    use crate::cli::Cli;
+    use clap::Parser;
+    assert!(!Cli::parse_from(["igmem"]).vector_index_enabled());
+    assert!(Cli::parse_from(["igmem", "--vector-index", "vec"]).vector_index_enabled());
+    assert!(!Cli::parse_from(["igmem", "--vector-index", "brute"]).vector_index_enabled());
+}
+
+#[test]
+fn embedder_flags_parse_and_build() {
+    use crate::cli::Cli;
+    use clap::Parser;
+
+    // default: no embedder
+    let c = Cli::parse_from(["igmem"]);
+    assert!(c.build_embedder().is_none());
+
+    // hash embedder builds
+    let c = Cli::parse_from(["igmem", "--embedder", "hash"]);
+    assert!(c.build_embedder().is_some());
+
+    // ollama parses (does not connect)
+    let c = Cli::parse_from([
+        "igmem",
+        "--embedder",
+        "ollama",
+        "--embed-model",
+        "nomic-embed-text",
+    ]);
+    assert!(c.build_embedder().is_some());
+}

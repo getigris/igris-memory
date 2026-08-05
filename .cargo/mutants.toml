@@ -1,0 +1,16 @@
+exclude_globs = [
+    "src/tui/ui.rs",
+    "src/codegraph/extractors/c.rs",
+    "src/codegraph/extractors/cpp.rs",
+    "src/codegraph/extractors/csharp.rs",
+    "src/codegraph/extractors/go.rs",
+    "src/codegraph/extractors/java.rs",
+    "src/codegraph/extractors/javascript.rs",
+    "src/codegraph/extractors/kotlin.rs",
+    "src/codegraph/extractors/php.rs",
+    "src/codegraph/extractors/python.rs",
+    "src/codegraph/extractors/ruby.rs",
+    "src/codegraph/extractors/rust.rs",
+    "src/codegraph/extractors/swift.rs",
+    "src/codegraph/extractors/typescript.rs",
+]

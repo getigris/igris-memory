@@ -1,0 +1,35 @@
+pub mod c;
+pub mod cpp;
+pub mod csharp;
+pub mod go;
+pub mod java;
+pub mod javascript;
+pub mod kotlin;
+pub mod php;
+pub mod python;
+pub mod ruby;
+pub mod rust;
+pub mod swift;
+pub mod typescript;
+
+use super::extractor::LanguageExtractorRegistry;
+
+/// Registers every implemented language extractor. Called once when building
+/// the indexer (Task 8). Each language task in this plan adds one line here.
+#[allow(dead_code)]
+pub fn register_all(registry: &mut LanguageExtractorRegistry) {
+    registry.register(Box::new(c::CExtractor));
+    registry.register(Box::new(cpp::CppExtractor));
+    registry.register(Box::new(csharp::CSharpExtractor));
+    registry.register(Box::new(go::GoExtractor));
+    registry.register(Box::new(java::JavaExtractor));
+    registry.register(Box::new(javascript::JavaScriptExtractor));
+    registry.register(Box::new(kotlin::KotlinExtractor));
+    registry.register(Box::new(php::PhpExtractor));
+    registry.register(Box::new(python::PythonExtractor));
+    registry.register(Box::new(ruby::RubyExtractor));
+    registry.register(Box::new(rust::RustExtractor));
+    registry.register(Box::new(swift::SwiftExtractor));
+    registry.register(Box::new(typescript::TypeScriptExtractor));
+    registry.register(Box::new(typescript::TsxExtractor));
+}

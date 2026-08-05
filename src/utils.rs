@@ -26,6 +26,37 @@ pub fn now_utc() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
+/// Normalize an alias for deterministic matching: trim, lowercase,
+/// and collapse internal whitespace to single spaces.
+pub fn normalize_alias(input: &str) -> String {
+    input
+        .split_whitespace()
+        .map(|w| w.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Produce a stable kebab-case slug from an entity name.
+/// Keeps ASCII alphanumerics, turns runs of other chars into single dashes,
+/// trims leading/trailing dashes, and caps length at 60 chars.
+pub fn entity_slug(input: &str) -> String {
+    let mut slug = String::new();
+    let mut prev_dash = false;
+    for ch in input.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !slug.is_empty() && !prev_dash {
+            slug.push('-');
+            prev_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    slug.chars().take(60).collect()
+}
+
 #[cfg(test)]
 #[path = "tests/utils_test.rs"]
 mod tests;

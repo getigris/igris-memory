@@ -42,6 +42,27 @@ pub fn export_to_dir(db: &Database, dir: &Path) -> Result<Manifest, IgrisError> 
             .map_err(|e| IgrisError::database(format!("Failed to write chunk: {e}")))?;
     }
 
+    // Write entity-graph collections (Fase 0b-port).
+    let entities_json = serde_json::to_string_pretty(&data.entities)
+        .map_err(|e| IgrisError::database(format!("Failed to serialize entities: {e}")))?;
+    std::fs::write(dir.join("entities.json"), entities_json)
+        .map_err(|e| IgrisError::database(format!("Failed to write entities: {e}")))?;
+
+    let aliases_json = serde_json::to_string_pretty(&data.entity_aliases)
+        .map_err(|e| IgrisError::database(format!("Failed to serialize aliases: {e}")))?;
+    std::fs::write(dir.join("entity_aliases.json"), aliases_json)
+        .map_err(|e| IgrisError::database(format!("Failed to write aliases: {e}")))?;
+
+    let edges_json = serde_json::to_string_pretty(&data.edges)
+        .map_err(|e| IgrisError::database(format!("Failed to serialize edges: {e}")))?;
+    std::fs::write(dir.join("edges.json"), edges_json)
+        .map_err(|e| IgrisError::database(format!("Failed to write edges: {e}")))?;
+
+    let mentions_json = serde_json::to_string_pretty(&data.mentions)
+        .map_err(|e| IgrisError::database(format!("Failed to serialize mentions: {e}")))?;
+    std::fs::write(dir.join("mentions.json"), mentions_json)
+        .map_err(|e| IgrisError::database(format!("Failed to write mentions: {e}")))?;
+
     // Write manifest
     let machine_id = hostname().unwrap_or_else(|| "unknown".to_string());
     let manifest = Manifest {
@@ -100,12 +121,32 @@ pub fn import_from_dir(db: &Database, dir: &Path) -> Result<ImportResult, IgrisE
         observations.extend(chunk);
     }
 
+    // Read entity-graph collections (absent in pre-0b-port sync dirs → empty).
+    fn read_json_vec<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Vec<T>, IgrisError> {
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let s = std::fs::read_to_string(path)
+            .map_err(|e| IgrisError::database(format!("Failed to read {path:?}: {e}")))?;
+        serde_json::from_str(&s)
+            .map_err(|e| IgrisError::validation(format!("Invalid {path:?}: {e}")))
+    }
+
+    let entities = read_json_vec(&dir.join("entities.json"))?;
+    let entity_aliases = read_json_vec(&dir.join("entity_aliases.json"))?;
+    let edges = read_json_vec(&dir.join("edges.json"))?;
+    let mentions = read_json_vec(&dir.join("mentions.json"))?;
+
     // Reconstruct ExportData and use existing import logic
     let data = ExportData {
         version: manifest.version,
         exported_at: manifest.exported_at,
         observations,
         sessions,
+        entities,
+        entity_aliases,
+        edges,
+        mentions,
     };
 
     db.import_data(&data)

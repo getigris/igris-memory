@@ -265,6 +265,58 @@ igmem --db-key "my-secret-key"
 IGRIS_LOG=debug igmem serve --port 7437
 ```
 
+## Semantic Search (optional)
+
+By default, `igris_search` uses keyword-only full-text search. To enable semantic (vector-based) search combined with keywords via Reciprocal Rank Fusion:
+
+### Vector Search Backend
+
+Vector search uses an **exact brute-force backend by default**. For large memory sets, enable the optional **sqlite-vec ANN (approximate nearest neighbor) backend** via `--vector-index vec`:
+
+```bash
+igmem --embedder ollama --vector-index vec embed --backfill --rebuild-index
+```
+
+This flag enables statically-linked sqlite-vec for approximate nearest-neighbor search with post-filtering to ensure exactness. Omit `--vector-index` or set it to `brute` to use the default brute-force backend.
+
+### Setup
+
+**1. Install Ollama**
+
+Download and install [Ollama](https://ollama.ai), then pull the embedding model:
+
+```bash
+ollama pull nomic-embed-text
+```
+
+**2. Configure embedder and vector index**
+
+```bash
+# Via CLI flag
+igmem --embedder ollama
+
+# Or via environment variable
+IGRIS_EMBEDDER=ollama igmem
+```
+
+Custom embedder URL and model:
+
+```bash
+igmem --embedder ollama --embed-url http://localhost:11434 --embed-model nomic-embed-text
+# Or environment variables
+IGRIS_EMBEDDER=ollama IGRIS_EMBED_URL=http://localhost:11434 IGRIS_EMBED_MODEL=nomic-embed-text igmem
+```
+
+**3. Index existing memories** (one-time)
+
+```bash
+igmem embed --backfill
+```
+
+From this point, every memory saved via `igris_save` is automatically embedded and `igris_search` returns hybrid results (semantic + keyword, ranked via RRF).
+
+**Without an embedder**, search remains keyword-only with no setup required — the behavior is unchanged.
+
 ## Architecture
 
 ```mermaid

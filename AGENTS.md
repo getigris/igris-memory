@@ -88,16 +88,33 @@ Structure the summary as:
 | Tool | When to Use | Parameters |
 |------|-------------|------------|
 | `igris_context` | **Session start**. Load recent memories chronologically. | `project?`, `limit?` (default 20, max 50) |
-| `igris_search` | Find specific past decisions, patterns, or context by keyword. | `query` (required), `project?`, `type?`, `limit?` |
+| `igris_search` | Find specific past decisions, patterns, or context by keyword or natural language. Hybrid (semantic + keyword via RRF) when an embedder is configured, keyword-only otherwise. | `query` (required), `project?`, `type?`, `limit?` |
 | `igris_get` | Get full content of a memory by ID. | `id` (required) |
 | `igris_timeline` | Understand the sequence of events around a memory. | `observation_id` (required), `before?`, `after?` |
 | `igris_stats` | Memory store overview: totals by type/project. | _(none)_ |
+
+#### Entities (Fase 0a)
+
+| Tool | When to Use | Parameters |
+|------|-------------|------------|
+| `igris_entity_upsert` | Declare the who/what a memory is about. Idempotent by name within project+scope. | `kind`, `name` (required), `aliases?`, `project?`, `scope?` |
+| `igris_entity_get` | Fetch an entity by `id` or `slug`. | `id?` or `slug?`, `project?`, `scope?` |
+| `igris_entity_link` | Create/strengthen a typed relation between two entities (by id). | `src_id`, `dst_id`, `relation` (required) |
+| `igris_entity_neighbors` | List an entity's connected entities, strongest first. | `entity_id` (required), `limit?` |
+| `igris_entity_timeline` | List observations mentioning an entity, most recent first. | `entity_id` (required), `limit?` |
+| `igris_brief` | One-call summary of an entity: Compiled Truth + top connections + recent mentions. | `id?` or `slug?`, `project?`, `scope?` |
+| `igris_entity_search` | Find entities by name/alias (optionally filter by kind). Discover ids/slugs. | `query` (required), `kind?`, `project?`, `scope?`, `limit?` |
+| `igris_entity_list` | Browse entities, most recent first. | `kind?`, `project?`, `scope?`, `limit?` |
+| `igris_entity_delete` | Soft-delete an entity by id. | `id` (required) |
+| `igris_entity_unlink` | Remove a typed relation between two entities. | `src_id`, `dst_id`, `relation` (required) |
+| `igris_entity_update` | Update an entity's kind/tier/salience or add aliases, by id. | `id` (required), `kind?`, `tier?`, `salience?`, `add_aliases?` |
+| `igris_entity_merge` | Fold a duplicate entity (source) into another (target). | `source_id`, `target_id` (required) |
 
 #### Saving & Updating
 
 | Tool | When to Use | Parameters |
 |------|-------------|------------|
-| `igris_save` | Save a new observation. Use `topic_key` for evolving knowledge. | `title`, `content` (required), `type?`, `project?`, `scope?`, `tags?`, `topic_key?`, `session_id?` |
+| `igris_save` | Save a new observation. Use `topic_key` for evolving knowledge; `mentions` to link entities. Automatically embedded when an embedder is configured. | `title`, `content` (required), `type?`, `project?`, `scope?`, `tags?`, `topic_key?`, `session_id?`, `mentions?` |
 | `igris_update` | Correct specific fields of an existing memory. | `id` (required), `title?`, `content?`, `type?`, `tags?`, `topic_key?` |
 | `igris_suggest_topic_key` | Generate a consistent topic_key before saving. | `type`, `title`, `content` (all required) |
 
@@ -115,8 +132,8 @@ Structure the summary as:
 
 | Tool | When to Use | Parameters |
 |------|-------------|------------|
-| `igris_export` | Backup all memories as JSON. | _(none)_ |
-| `igris_import` | Restore from JSON export. Deduplicates by content hash. | `data` (required) |
+| `igris_export` | Backup all memories AND the entity graph (entities, aliases, edges, mentions) as JSON. | _(none)_ |
+| `igris_import` | Restore from JSON export. Dedups observations by hash and entities by slug; remaps ids to keep the graph linked. | `data` (required) |
 
 ### Topic Keys
 

@@ -14,6 +14,30 @@ pub const VALID_TYPES: &[&str] = &[
 /// Valid scopes for observations.
 pub const VALID_SCOPES: &[&str] = &["project", "personal"];
 
+/// Valid entity kinds accepted by Igris.
+pub const VALID_ENTITY_KINDS: &[&str] = &[
+    "person", "company", "project", "concept", "place", "product", "other",
+];
+
+/// Validate that the entity kind is one of the known kinds.
+pub fn validate_entity_kind(kind: &str) -> Result<(), String> {
+    if !VALID_ENTITY_KINDS.contains(&kind) {
+        return Err(format!(
+            "Invalid entity kind '{kind}'. Must be one of: {}",
+            VALID_ENTITY_KINDS.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// Validate entity upsert inputs.
+pub fn validate_entity(kind: &str, name: &str, scope: &str) -> Result<(), String> {
+    require_non_empty(name, "canonical_name")?;
+    validate_entity_kind(kind)?;
+    validate_scope(scope)?;
+    Ok(())
+}
+
 /// Validate that a string is not empty or whitespace-only.
 pub fn require_non_empty(value: &str, field: &str) -> Result<(), String> {
     if value.trim().is_empty() {
@@ -74,6 +98,19 @@ pub fn validate_update_has_fields(
         && topic_key.is_none()
     {
         return Err("Update requires at least one field to change".to_string());
+    }
+    Ok(())
+}
+
+/// Validate that an entity update has at least one field to change.
+pub fn validate_entity_update_has_fields(
+    kind: Option<&str>,
+    tier: Option<i32>,
+    salience: Option<f64>,
+    add_aliases: &[String],
+) -> Result<(), String> {
+    if kind.is_none() && tier.is_none() && salience.is_none() && add_aliases.is_empty() {
+        return Err("update requires at least one field to change".to_string());
     }
     Ok(())
 }
