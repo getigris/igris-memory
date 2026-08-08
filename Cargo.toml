@@ -1,6 +1,6 @@
 [package]
 name = "igris-memory"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 description = "Persistent memory server for AI coding agents"
 license = "Elastic-2.0"
