@@ -4,6 +4,26 @@ All notable changes to Igris Memory will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-08
+
+### Added
+- Entity graph (Fase 0): `igris_entity_upsert/get/link/neighbors/search/list/delete/unlink/update/merge`, `igris_entity_timeline`, `igris_brief` with deterministic Compiled Truth, and entity mentions recorded by `igris_save`
+- Hybrid retrieval (Fase 1): `Embedder` trait with `OllamaEmbedder` and `HashEmbedder`, `hybrid_search` fusing FTS5 and vectors via RRF, `--embedder` config, and `igmem embed --backfill`/`--rebuild-index`
+- Optional sqlite-vec ANN backend (Fase 1c) with brute-force fallback (`--vector-index`)
+- Code graph (Fase 2): tree-sitter based extractors for Rust, TypeScript/TSX, JavaScript, Python, Go, Java, C, C++, C#, Ruby, PHP, Swift, and Kotlin; indexer orchestration with background indexing on `igris_session_start`; and new MCP tools `igris_code_search`, `igris_code_neighbors`, `igris_code_path`, `igris_code_map`
+- MCP log/progress notifications for entity, observation, and session tools; dynamic log level
+- Entity graph round-tripped through export/import and sync
+- Mutation-testing CI gate (`cargo-mutants --in-diff`) on PR diffs
+
+### Changed
+- `igris_stats` includes entity and edge counts
+- Entity slugs are unique per project+scope regardless of kind (idempotent upsert by name)
+
+### Fixed
+- Entity merge wrapped in a transaction; atomic entity upsert
+- Cascade mentions/edges on delete to unblock purge; deterministic neighbor order
+- v1 → v2 schema migration preserves data
+
 ## [0.1.2] - 2026-03-31
 
 ### Security
@@ -49,6 +69,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Release pipeline with GitHub Releases and SHA-256 checksums
 - Pre-commit hooks (.githooks/) for fmt, clippy, and tests
 
+[0.2.0]: https://github.com/getigris/igris-memory/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/getigris/igris-memory/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/getigris/igris-memory/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/getigris/igris-memory/releases/tag/v0.1.0
