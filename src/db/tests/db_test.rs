@@ -228,6 +228,45 @@ fn backfill_candidates_excludes_deleted_and_respects_limit() {
     assert_eq!(limited.len(), 2);
 }
 
+#[test]
+fn mark_entities_reviewed_sets_timestamp_and_is_idempotent() {
+    let db = test_db();
+    let obs = db
+        .save_observation(
+            "Obs", "content", "manual", None, "project", None, None, None,
+        )
+        .unwrap();
+
+    assert!(db.mark_entities_reviewed(obs.id).unwrap());
+    let first = db.get_observation(obs.id).unwrap();
+    let reviewed_at: Option<String> = db
+        .conn
+        .query_row(
+            "SELECT entities_reviewed_at FROM observations WHERE id = ?1",
+            rusqlite::params![obs.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(reviewed_at.is_some());
+    assert!(first.deleted_at.is_none());
+
+    assert!(db.mark_entities_reviewed(obs.id).unwrap());
+}
+
+#[test]
+fn mark_entities_reviewed_returns_false_for_missing_or_deleted() {
+    let db = test_db();
+    assert!(!db.mark_entities_reviewed(999_999).unwrap());
+
+    let obs = db
+        .save_observation(
+            "Obs", "content", "manual", None, "project", None, None, None,
+        )
+        .unwrap();
+    db.delete_observation(obs.id).unwrap();
+    assert!(!db.mark_entities_reviewed(obs.id).unwrap());
+}
+
 // ─── Search ─────────────────────────────────────────────────────
 
 #[test]
