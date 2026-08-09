@@ -117,6 +117,9 @@ Structure the summary as:
 | `igris_save` | Save a new observation. Use `topic_key` for evolving knowledge; `mentions` to link entities. Automatically embedded when an embedder is configured. | `title`, `content` (required), `type?`, `project?`, `scope?`, `tags?`, `topic_key?`, `session_id?`, `mentions?` |
 | `igris_update` | Correct specific fields of an existing memory. | `id` (required), `title?`, `content?`, `type?`, `tags?`, `topic_key?` |
 | `igris_suggest_topic_key` | Generate a consistent topic_key before saving. | `type`, `title`, `content` (all required) |
+| `igris_backfill_candidates` | Find entities without complete mention coverage. Returns entities eligible for backfill analysis to discover missing associations. | `project?`, `kind?`, `limit?` |
+| `igris_mentions_add` | Batch-add mention links from observations to entities. Establishes associations discovered during backfill. | `observation_id`, `entity_ids` (required, list) |
+| `igris_backfill_skip` | Mark an entity as ineligible for backfill (e.g., false positive or transient). Prevents re-analysis in future backfill runs. | `entity_id` (required), `reason?` |
 
 #### Lifecycle & Cleanup
 
