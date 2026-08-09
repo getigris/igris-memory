@@ -361,7 +361,7 @@ pub struct CodePathArgs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct BackfillCandidatesArgs {
-    #[schemars(description = "Filter by project (omit for current project).")]
+    #[schemars(description = "Filter by project (omit for all).")]
     pub project: Option<String>,
     #[schemars(description = "Filter by scope: 'project' or 'personal' (omit for all).")]
     pub scope: Option<String>,
@@ -381,10 +381,12 @@ pub struct MentionsAddArgs {
         description = "Entity names mentioned by this observation. Unknown names auto-create stub entities; entities mentioned together get linked. Must be non-empty — use igris_backfill_skip if there are none."
     )]
     pub mentions: Vec<String>,
-    #[schemars(description = "Project for entity resolution (omit for current project).")]
+    #[schemars(
+        description = "Project bucket for entity resolution (omit to inherit the observation's project)."
+    )]
     pub project: Option<String>,
     #[schemars(
-        description = "Scope for entity resolution: 'project' or 'personal' (default 'project')."
+        description = "Scope for entity resolution: 'project' or 'personal' (omit to inherit the observation's scope)."
     )]
     pub scope: Option<String>,
 }

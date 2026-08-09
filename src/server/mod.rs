@@ -2094,38 +2094,47 @@ impl IgrisServer {
         };
         // get_observation doesn't filter deleted_at, and a missing id surfaces
         // as a generic DatabaseError rather than NotFound — check explicitly.
-        let scope = args.scope.clone().unwrap_or_else(default_scope);
-        let obs_ok =
-            matches!(db.get_observation(args.observation_id), Ok(o) if o.deleted_at.is_none());
+        let obs = match db.get_observation(args.observation_id) {
+            Ok(o) if o.deleted_at.is_none() => Some(o),
+            _ => None,
+        };
         let mut end_data = serde_json::json!({});
-        let result = if !obs_ok {
-            end_data = serde_json::json!({ "linked_count": 0 });
-            err_json(IgrisError::not_found(format!(
-                "Observation {} not found or deleted",
-                args.observation_id
-            )))
-        } else {
-            match db.record_mentions(
-                args.observation_id,
-                &args.mentions,
-                args.project.as_deref(),
-                &scope,
-            ) {
-                Ok(entities) => {
-                    end_data = serde_json::json!({ "linked_count": entities.len() });
-                    to_json(&entities)
-                }
-                Err(e) => {
-                    tracing::warn!(tool = "igris_mentions_add", error = %e, "db error");
-                    self.notify_log(
-                        &ctx,
-                        LoggingLevel::Warning,
-                        "igris_mentions_add",
-                        "error",
-                        serde_json::json!({ "error": e.to_string() }),
-                    );
-                    end_data = serde_json::json!({ "linked_count": 0 });
-                    err_json(e)
+        let result = match obs {
+            None => {
+                end_data = serde_json::json!({ "linked_count": 0 });
+                err_json(IgrisError::not_found(format!(
+                    "Observation {} not found or deleted",
+                    args.observation_id
+                )))
+            }
+            // Entities bucket by (project, scope), so default both from the
+            // observation being annotated — otherwise a caller that omits them
+            // resolves into a different bucket and duplicates the entity.
+            Some(obs) => {
+                let project = args.project.clone().or(obs.project);
+                let scope = args.scope.clone().unwrap_or(obs.scope);
+                match db.record_mentions(
+                    args.observation_id,
+                    &args.mentions,
+                    project.as_deref(),
+                    &scope,
+                ) {
+                    Ok(entities) => {
+                        end_data = serde_json::json!({ "linked_count": entities.len() });
+                        to_json(&entities)
+                    }
+                    Err(e) => {
+                        tracing::warn!(tool = "igris_mentions_add", error = %e, "db error");
+                        self.notify_log(
+                            &ctx,
+                            LoggingLevel::Warning,
+                            "igris_mentions_add",
+                            "error",
+                            serde_json::json!({ "error": e.to_string() }),
+                        );
+                        end_data = serde_json::json!({ "linked_count": 0 });
+                        err_json(e)
+                    }
                 }
             }
         };

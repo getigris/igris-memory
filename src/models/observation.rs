@@ -23,7 +23,6 @@ pub struct Observation {
 
 /// An observation with no recorded entity mentions, eligible for retroactive
 /// entity backfill via `igris_backfill_candidates`/`igris_mentions_add`.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackfillCandidate {
     pub id: i64,
@@ -31,6 +30,8 @@ pub struct BackfillCandidate {
     pub content: String,
     #[serde(rename = "type")]
     pub observation_type: String,
+    pub project: Option<String>,
+    pub scope: String,
     pub created_at: String,
     pub entities_reviewed_at: Option<String>,
 }

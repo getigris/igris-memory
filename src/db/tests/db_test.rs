@@ -229,6 +229,78 @@ fn backfill_candidates_excludes_deleted_and_respects_limit() {
 }
 
 #[test]
+fn backfill_candidates_partition_by_project_and_scope() {
+    let db = test_db();
+    let proj_a = db
+        .save_observation(
+            "A",
+            "a content",
+            "manual",
+            Some("a"),
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    let proj_b = db
+        .save_observation(
+            "B",
+            "b content",
+            "manual",
+            Some("b"),
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    let personal = db
+        .save_observation(
+            "P",
+            "p content",
+            "manual",
+            Some("a"),
+            "personal",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+    let only_a = db
+        .list_backfill_candidates(Some("a"), None, 20, 30)
+        .unwrap();
+    let a_ids: Vec<i64> = only_a.iter().map(|c| c.id).collect();
+    assert!(a_ids.contains(&proj_a.id));
+    assert!(a_ids.contains(&personal.id));
+    assert!(
+        !a_ids.contains(&proj_b.id),
+        "project filter must exclude other projects"
+    );
+
+    let only_personal = db
+        .list_backfill_candidates(None, Some("personal"), 20, 30)
+        .unwrap();
+    let personal_ids: Vec<i64> = only_personal.iter().map(|c| c.id).collect();
+    assert_eq!(personal_ids, vec![personal.id]);
+
+    let a_and_project = db
+        .list_backfill_candidates(Some("a"), Some("project"), 20, 30)
+        .unwrap();
+    assert_eq!(
+        a_and_project.iter().map(|c| c.id).collect::<Vec<_>>(),
+        vec![proj_a.id]
+    );
+
+    // Candidates carry their own project/scope so a backfill agent can feed
+    // them straight back into igris_mentions_add.
+    let candidate = a_and_project.first().unwrap();
+    assert_eq!(candidate.project.as_deref(), Some("a"));
+    assert_eq!(candidate.scope, "project");
+}
+
+#[test]
 fn mark_entities_reviewed_sets_timestamp_and_is_idempotent() {
     let db = test_db();
     let obs = db

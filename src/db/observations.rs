@@ -200,7 +200,6 @@ impl Database {
     /// Observations with no `mentions` row, eligible for retroactive entity
     /// backfill. Never-reviewed observations sort first, then observations
     /// whose review is older than `reconsider_after_days` — oldest first.
-    #[allow(dead_code)]
     pub fn list_backfill_candidates(
         &self,
         project: Option<&str>,
@@ -211,7 +210,7 @@ impl Database {
         let limit = limit.clamp(1, 50);
         let reconsider_after_days = reconsider_after_days.max(0);
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, content, type, created_at, entities_reviewed_at
+            "SELECT id, title, content, type, project, scope, created_at, entities_reviewed_at
              FROM observations
              WHERE deleted_at IS NULL
                AND NOT EXISTS (SELECT 1 FROM mentions m WHERE m.observation_id = observations.id)
@@ -231,8 +230,10 @@ impl Database {
                         title: row.get(1)?,
                         content: row.get(2)?,
                         observation_type: row.get(3)?,
-                        created_at: row.get(4)?,
-                        entities_reviewed_at: row.get(5)?,
+                        project: row.get(4)?,
+                        scope: row.get(5)?,
+                        created_at: row.get(6)?,
+                        entities_reviewed_at: row.get(7)?,
                     })
                 },
             )?
@@ -244,7 +245,6 @@ impl Database {
     /// Marks an observation as evaluated for entity backfill (with nothing
     /// found to link). Returns `false` if the id doesn't exist or is already
     /// soft-deleted — mirrors `delete_observation`'s existence-check shape.
-    #[allow(dead_code)]
     pub fn mark_entities_reviewed(&self, id: i64) -> DbResult<bool> {
         let affected = self.conn.execute(
             "UPDATE observations SET entities_reviewed_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",

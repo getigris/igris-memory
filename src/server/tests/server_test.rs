@@ -1993,6 +1993,7 @@ async fn igris_backfill_skip_errors_on_missing_observation() -> anyhow::Result<(
 async fn backfill_full_cycle_candidates_link_skip_candidates_again() -> anyhow::Result<()> {
     let db = Database::open_in_memory()?;
     let server = IgrisServer::with_embedder(db, None);
+    let db_handle = server.db.clone();
     let (server_transport, client_transport) = tokio::io::duplex(4096);
     tokio::spawn(async move {
         let running = server.serve(server_transport).await?;
@@ -2015,7 +2016,11 @@ async fn backfill_full_cycle_candidates_link_skip_candidates_again() -> anyhow::
     let save_to_link = tokio::time::timeout(
         Duration::from_secs(5),
         client.call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
-            serde_json::json!({ "title": "will be linked", "content": "body" }),
+            serde_json::json!({
+                "title": "will be linked",
+                "content": "body",
+                "project": "backfill-test-project",
+            }),
         ))),
     )
     .await
@@ -2081,6 +2086,22 @@ async fn backfill_full_cycle_candidates_link_skip_candidates_again() -> anyhow::
     )
     .await
     .expect("igris_mentions_add timed out")?;
+
+    // The call above omitted project/scope, so the entity must have resolved
+    // into the annotated observation's own bucket — not the global one, which
+    // would silently create a duplicate entity for the same name.
+    {
+        let inner_db = db_handle.lock().unwrap();
+        let entity =
+            inner_db.get_entity_by_slug("some-entity", Some("backfill-test-project"), "project")?;
+        assert_eq!(entity.canonical_name, "Some Entity");
+        assert_eq!(
+            entity.project.as_deref(),
+            Some("backfill-test-project"),
+            "entity must resolve into the observation's project"
+        );
+    }
+
     tokio::time::timeout(
         Duration::from_secs(5),
         client.call_tool(
