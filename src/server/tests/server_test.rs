@@ -1988,3 +1988,139 @@ async fn igris_backfill_skip_errors_on_missing_observation() -> anyhow::Result<(
     client.cancel().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn backfill_full_cycle_candidates_link_skip_candidates_again() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    // Save two observations, extracting each id the same way the other
+    // integration tests in this file do (no local helper fns, to avoid
+    // having to name the client's internal service type).
+    let save_to_link = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+            serde_json::json!({ "title": "will be linked", "content": "body" }),
+        ))),
+    )
+    .await
+    .expect("igris_save timed out")?;
+    let to_link = serde_json::to_value(&save_to_link.content)?
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .and_then(|v| v["id"].as_i64())
+        .ok_or_else(|| anyhow::anyhow!("no id in save response"))?;
+
+    let save_to_skip = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+            serde_json::json!({ "title": "will be skipped", "content": "body" }),
+        ))),
+    )
+    .await
+    .expect("igris_save timed out")?;
+    let to_skip = serde_json::to_value(&save_to_skip.content)?
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .and_then(|v| v["id"].as_i64())
+        .ok_or_else(|| anyhow::anyhow!("no id in save response"))?;
+
+    let candidates_before = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_backfill_candidates")
+                .with_arguments(obj(serde_json::json!({ "limit": 20 }))),
+        ),
+    )
+    .await
+    .expect("igris_backfill_candidates timed out")?;
+    let before_text = serde_json::to_value(&candidates_before.content)?
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field"))?
+        .to_string();
+    let before_ids: Vec<i64> = serde_json::from_str::<serde_json::Value>(&before_text)?
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_i64().unwrap())
+        .collect();
+    assert!(before_ids.contains(&to_link));
+    assert!(before_ids.contains(&to_skip));
+
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_mentions_add").with_arguments(obj(
+                serde_json::json!({
+                    "observation_id": to_link,
+                    "mentions": ["Some Entity"],
+                }),
+            )),
+        ),
+    )
+    .await
+    .expect("igris_mentions_add timed out")?;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_backfill_skip")
+                .with_arguments(obj(serde_json::json!({ "observation_id": to_skip }))),
+        ),
+    )
+    .await
+    .expect("igris_backfill_skip timed out")?;
+
+    let candidates_after = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_backfill_candidates")
+                .with_arguments(obj(serde_json::json!({ "limit": 20 }))),
+        ),
+    )
+    .await
+    .expect("igris_backfill_candidates timed out")?;
+    let after_text = serde_json::to_value(&candidates_after.content)?
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field"))?
+        .to_string();
+    let after_ids: Vec<i64> = serde_json::from_str::<serde_json::Value>(&after_text)?
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_i64().unwrap())
+        .collect();
+    assert!(
+        !after_ids.contains(&to_link),
+        "linked observation should no longer be a candidate"
+    );
+    assert!(
+        !after_ids.contains(&to_skip),
+        "skipped observation should no longer be a candidate"
+    );
+
+    client.cancel().await?;
+    Ok(())
+}
