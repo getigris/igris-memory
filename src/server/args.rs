@@ -359,6 +359,20 @@ pub struct CodePathArgs {
     pub max_hops: Option<i64>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BackfillCandidatesArgs {
+    #[schemars(description = "Filter by project (omit for current project).")]
+    pub project: Option<String>,
+    #[schemars(description = "Filter by scope: 'project' or 'personal' (omit for all).")]
+    pub scope: Option<String>,
+    #[schemars(description = "Max results (default 20, max 50).")]
+    pub limit: Option<i64>,
+    #[schemars(
+        description = "Re-surface an observation this many days after it was last marked reviewed with no entities found (default 30)."
+    )]
+    pub reconsider_after_days: Option<i64>,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

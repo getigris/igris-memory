@@ -2001,6 +2001,67 @@ impl IgrisServer {
         );
         result
     }
+
+    #[tool(
+        name = "igris_backfill_candidates",
+        description = "List observations with no recorded entity mentions, eligible for retroactive entity backfill. Read each one's content, decide what entities (if any) it mentions, then call igris_mentions_add or igris_backfill_skip. Never-reviewed observations come first, then observations whose prior review is older than reconsider_after_days."
+    )]
+    fn igris_backfill_candidates(
+        &self,
+        Parameters(args): Parameters<BackfillCandidatesArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
+        let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_backfill_candidates",
+            "start",
+            serde_json::json!({
+                "project": args.project,
+                "scope": args.scope,
+                "limit": args.limit,
+                "reconsider_after_days": args.reconsider_after_days,
+            }),
+        );
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let mut end_data = serde_json::json!({});
+        let result = match db.list_backfill_candidates(
+            args.project.as_deref(),
+            args.scope.as_deref(),
+            args.limit.unwrap_or(20),
+            args.reconsider_after_days.unwrap_or(30),
+        ) {
+            Ok(candidates) => {
+                end_data = serde_json::json!({ "results_count": candidates.len() });
+                to_json(&candidates)
+            }
+            Err(e) => {
+                tracing::warn!(tool = "igris_backfill_candidates", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_backfill_candidates",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
+                err_json(e)
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_backfill_candidates", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_backfill_candidates",
+            "end",
+            notify::with_duration(end_data, duration_ms),
+        );
+        result
+    }
 }
 
 #[tool_handler]

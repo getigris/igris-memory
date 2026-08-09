@@ -1629,3 +1629,70 @@ async fn get_info_reports_real_instructions_and_capabilities() -> anyhow::Result
 
     Ok(())
 }
+
+#[tokio::test]
+async fn igris_backfill_candidates_lists_unmentioned_observations() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+            serde_json::json!({
+                "title": "no mentions yet",
+                "content": "plain observation, nothing linked",
+            }),
+        ))),
+    )
+    .await
+    .expect("igris_save timed out")?;
+
+    let response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_backfill_candidates")
+                .with_arguments(obj(serde_json::json!({ "limit": 20 }))),
+        ),
+    )
+    .await
+    .expect("igris_backfill_candidates timed out")?;
+
+    assert_ne!(
+        response.is_error,
+        Some(true),
+        "call failed: {:?}",
+        response.content
+    );
+    let json = serde_json::to_value(&response.content)?;
+    let text = json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    let parsed: serde_json::Value = serde_json::from_str(text)?;
+    let titles: Vec<&str> = parsed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["title"].as_str().unwrap())
+        .collect();
+    assert!(titles.contains(&"no mentions yet"));
+
+    client.cancel().await?;
+    Ok(())
+}
