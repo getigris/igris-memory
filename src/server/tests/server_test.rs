@@ -1856,6 +1856,74 @@ async fn igris_mentions_add_rejects_empty_mentions_and_missing_observation() -> 
 }
 
 #[tokio::test]
+async fn igris_mentions_add_rejects_deleted_observation() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let db_handle = server.db.clone();
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let save_response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+            serde_json::json!({
+                "title": "to be deleted",
+                "content": "will be soft-deleted before mentions_add is called",
+            }),
+        ))),
+    )
+    .await
+    .expect("igris_save timed out")?;
+    let obs_id = serde_json::to_value(&save_response.content)?
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .and_then(|v| v["id"].as_i64())
+        .ok_or_else(|| anyhow::anyhow!("no id in save response"))?;
+
+    {
+        let inner_db = db_handle.lock().unwrap();
+        assert!(inner_db.delete_observation(obs_id)?);
+    }
+
+    let response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_mentions_add").with_arguments(obj(
+                serde_json::json!({
+                    "observation_id": obs_id,
+                    "mentions": ["Someone"],
+                }),
+            )),
+        ),
+    )
+    .await
+    .expect("call timed out")?;
+    let code = error_code(&response)?;
+    assert_eq!(
+        code, "NOT_FOUND",
+        "mentions_add on a soft-deleted observation should error"
+    );
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn igris_backfill_skip_marks_reviewed_and_excludes_from_candidates() -> anyhow::Result<()> {
     let db = Database::open_in_memory()?;
     let server = IgrisServer::with_embedder(db, None);
