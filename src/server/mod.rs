@@ -2140,6 +2140,65 @@ impl IgrisServer {
         );
         result
     }
+
+    #[tool(
+        name = "igris_backfill_skip",
+        description = "Mark an observation as reviewed for entity backfill with nothing found — it won't reappear in igris_backfill_candidates until the reconsider_after_days window passes."
+    )]
+    fn igris_backfill_skip(
+        &self,
+        Parameters(args): Parameters<BackfillSkipArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
+        let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_backfill_skip",
+            "start",
+            serde_json::json!({ "observation_id": args.observation_id, "reason": args.reason }),
+        );
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let mut end_data = serde_json::json!({});
+        let result = match db.mark_entities_reviewed(args.observation_id) {
+            Ok(true) => {
+                end_data = serde_json::json!({ "reviewed": true });
+                serde_json::json!({ "reviewed": true, "reason": args.reason }).to_string()
+            }
+            Ok(false) => {
+                end_data = serde_json::json!({ "reviewed": false });
+                err_json(IgrisError::not_found(format!(
+                    "Observation {} not found or deleted",
+                    args.observation_id
+                )))
+            }
+            Err(e) => {
+                tracing::warn!(tool = "igris_backfill_skip", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_backfill_skip",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
+                end_data = serde_json::json!({ "reviewed": false });
+                err_json(e)
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_backfill_skip", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_backfill_skip",
+            "end",
+            notify::with_duration(end_data, duration_ms),
+        );
+        result
+    }
 }
 
 #[tool_handler]

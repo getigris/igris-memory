@@ -389,6 +389,16 @@ pub struct MentionsAddArgs {
     pub scope: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BackfillSkipArgs {
+    #[schemars(description = "Observation id to mark as reviewed with no entities found.")]
+    pub observation_id: i64,
+    #[schemars(
+        description = "Optional note on why nothing was found — echoed back, not persisted."
+    )]
+    pub reason: Option<String>,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

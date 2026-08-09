@@ -1854,3 +1854,137 @@ async fn igris_mentions_add_rejects_empty_mentions_and_missing_observation() -> 
     client.cancel().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn igris_backfill_skip_marks_reviewed_and_excludes_from_candidates() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let save_response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+            serde_json::json!({
+                "title": "nothing to link",
+                "content": "just a note, no entities",
+            }),
+        ))),
+    )
+    .await
+    .expect("igris_save timed out")?;
+    let save_json = serde_json::to_value(&save_response.content)?;
+    let obs_id = save_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .and_then(|v| v["id"].as_i64())
+        .ok_or_else(|| anyhow::anyhow!("no id in save response"))?;
+
+    let skip_response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_backfill_skip").with_arguments(obj(
+                serde_json::json!({
+                    "observation_id": obs_id,
+                }),
+            )),
+        ),
+    )
+    .await
+    .expect("igris_backfill_skip timed out")?;
+    assert_ne!(
+        skip_response.is_error,
+        Some(true),
+        "call failed: {:?}",
+        skip_response.content
+    );
+
+    let candidates_response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_backfill_candidates")
+                .with_arguments(obj(serde_json::json!({ "limit": 20 }))),
+        ),
+    )
+    .await
+    .expect("igris_backfill_candidates timed out")?;
+    let candidates_json = serde_json::to_value(&candidates_response.content)?;
+    let text = candidates_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    let parsed: serde_json::Value = serde_json::from_str(text)?;
+    let ids: Vec<i64> = parsed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_i64().unwrap())
+        .collect();
+    assert!(
+        !ids.contains(&obs_id),
+        "skipped observation should not reappear as a candidate"
+    );
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn igris_backfill_skip_errors_on_missing_observation() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_backfill_skip").with_arguments(obj(
+                serde_json::json!({
+                    "observation_id": 999_999,
+                }),
+            )),
+        ),
+    )
+    .await
+    .expect("call timed out")?;
+    // Tool handlers here return a plain `String` (never `McpError`), so
+    // `CallToolResult::is_error` is always `Some(false)` — the framework
+    // can't distinguish an app-level error embedded in the JSON string from
+    // success. Assert on the structured error body's `code` field instead,
+    // via the `error_code()` helper Task 5 added next to `obj()` in this file.
+    let code = error_code(&response)?;
+    assert_eq!(code, "NOT_FOUND", "missing observation should error");
+
+    client.cancel().await?;
+    Ok(())
+}
