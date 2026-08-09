@@ -1,5 +1,5 @@
 /// Current schema version. Increment when adding migrations.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// Initial database schema — tables, FTS5, triggers, and indices.
 pub const SCHEMA_V1: &str = r#"
@@ -212,6 +212,14 @@ CREATE TABLE IF NOT EXISTS code_edges (
 );
 CREATE INDEX IF NOT EXISTS idx_code_edge_src ON code_edges(src_type, src_id);
 CREATE INDEX IF NOT EXISTS idx_code_edge_dst ON code_edges(dst_type, dst_id);
+"#;
+
+/// v6: retroactive entity-backfill bookkeeping. `entities_reviewed_at` marks
+/// that an agent evaluated this observation for entity mentions and found
+/// none — distinct from NULL (never evaluated) so `igris_backfill_candidates`
+/// can skip both "already has mentions" and "reviewed, nothing there."
+pub const SCHEMA_V6: &str = r#"
+ALTER TABLE observations ADD COLUMN entities_reviewed_at TEXT;
 "#;
 
 /// Pragmas applied on every connection open.

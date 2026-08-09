@@ -13,7 +13,7 @@ mod vecindex;
 use crate::errors::IgrisError;
 use crate::models::Observation;
 use crate::schema::{
-    PRAGMAS, SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_VERSION,
+    PRAGMAS, SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_VERSION,
 };
 use rusqlite::{Connection, Result as SqlResult};
 use std::path::Path;
@@ -104,6 +104,9 @@ impl Database {
         }
         if version < 5 {
             self.conn.execute_batch(SCHEMA_V5)?;
+        }
+        if version < 6 {
+            self.conn.execute_batch(SCHEMA_V6)?;
         }
         if version < SCHEMA_VERSION {
             self.conn
