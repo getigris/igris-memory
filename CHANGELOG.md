@@ -4,6 +4,15 @@ All notable changes to Igris Memory will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-08-09
+
+### Added
+- Retroactive entity backfill: `igris_backfill_candidates` (list observations with no recorded mentions), `igris_mentions_add` (attach mentions to an existing observation, reusing `igris_save`'s resolution), `igris_backfill_skip` (mark an observation reviewed with nothing found, re-surfaces after `reconsider_after_days`)
+
+### Fixed
+- `igris_mentions_add` now resolves entities into the target observation's own project/scope instead of the caller-supplied (or global) one, preventing duplicate entities on backfill
+- `codegraph::walker` test flakiness under the pre-commit hook: a nested `git init` no longer inherits `GIT_DIR`/`GIT_WORK_TREE` from the hook's environment
+
 ## [0.2.0] - 2026-08-08
 
 ### Added
@@ -69,6 +78,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Release pipeline with GitHub Releases and SHA-256 checksums
 - Pre-commit hooks (.githooks/) for fmt, clippy, and tests
 
+[0.2.1]: https://github.com/getigris/igris-memory/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/getigris/igris-memory/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/getigris/igris-memory/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/getigris/igris-memory/compare/v0.1.0...v0.1.1
