@@ -2001,6 +2001,213 @@ impl IgrisServer {
         );
         result
     }
+
+    #[tool(
+        name = "igris_backfill_candidates",
+        description = "List observations with no recorded entity mentions, eligible for retroactive entity backfill. Read each one's content, decide what entities (if any) it mentions, then call igris_mentions_add or igris_backfill_skip. Never-reviewed observations come first, then observations whose prior review is older than reconsider_after_days."
+    )]
+    fn igris_backfill_candidates(
+        &self,
+        Parameters(args): Parameters<BackfillCandidatesArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
+        let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_backfill_candidates",
+            "start",
+            serde_json::json!({
+                "project": args.project,
+                "scope": args.scope,
+                "limit": args.limit,
+                "reconsider_after_days": args.reconsider_after_days,
+            }),
+        );
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let mut end_data = serde_json::json!({});
+        let result = match db.list_backfill_candidates(
+            args.project.as_deref(),
+            args.scope.as_deref(),
+            args.limit.unwrap_or(20),
+            args.reconsider_after_days.unwrap_or(30),
+        ) {
+            Ok(candidates) => {
+                end_data = serde_json::json!({ "results_count": candidates.len() });
+                to_json(&candidates)
+            }
+            Err(e) => {
+                tracing::warn!(tool = "igris_backfill_candidates", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_backfill_candidates",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
+                err_json(e)
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_backfill_candidates", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_backfill_candidates",
+            "end",
+            notify::with_duration(end_data, duration_ms),
+        );
+        result
+    }
+
+    #[tool(
+        name = "igris_mentions_add",
+        description = "Attach entity mentions to an existing observation (unknown names auto-create stub entities, and entities mentioned together get linked automatically) — the same resolution igris_save does at save time, usable retroactively. Requires a non-empty mentions list; use igris_backfill_skip if the observation genuinely mentions nothing."
+    )]
+    fn igris_mentions_add(
+        &self,
+        Parameters(args): Parameters<MentionsAddArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
+        let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_mentions_add",
+            "start",
+            serde_json::json!({
+                "observation_id": args.observation_id,
+                "mentions_count": args.mentions.len(),
+            }),
+        );
+        if args.mentions.is_empty() {
+            return err_json(IgrisError::validation(
+                "mentions must be non-empty; use igris_backfill_skip to mark an observation as having no entities".to_string(),
+            ));
+        }
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        // get_observation doesn't filter deleted_at, and a missing id surfaces
+        // as a generic DatabaseError rather than NotFound — check explicitly.
+        let obs = match db.get_observation(args.observation_id) {
+            Ok(o) if o.deleted_at.is_none() => Some(o),
+            _ => None,
+        };
+        let mut end_data = serde_json::json!({});
+        let result = match obs {
+            None => {
+                end_data = serde_json::json!({ "linked_count": 0 });
+                err_json(IgrisError::not_found(format!(
+                    "Observation {} not found or deleted",
+                    args.observation_id
+                )))
+            }
+            // Entities bucket by (project, scope), so default both from the
+            // observation being annotated — otherwise a caller that omits them
+            // resolves into a different bucket and duplicates the entity.
+            Some(obs) => {
+                let project = args.project.clone().or(obs.project);
+                let scope = args.scope.clone().unwrap_or(obs.scope);
+                match db.record_mentions(
+                    args.observation_id,
+                    &args.mentions,
+                    project.as_deref(),
+                    &scope,
+                ) {
+                    Ok(entities) => {
+                        end_data = serde_json::json!({ "linked_count": entities.len() });
+                        to_json(&entities)
+                    }
+                    Err(e) => {
+                        tracing::warn!(tool = "igris_mentions_add", error = %e, "db error");
+                        self.notify_log(
+                            &ctx,
+                            LoggingLevel::Warning,
+                            "igris_mentions_add",
+                            "error",
+                            serde_json::json!({ "error": e.to_string() }),
+                        );
+                        end_data = serde_json::json!({ "linked_count": 0 });
+                        err_json(e)
+                    }
+                }
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_mentions_add", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_mentions_add",
+            "end",
+            notify::with_duration(end_data, duration_ms),
+        );
+        result
+    }
+
+    #[tool(
+        name = "igris_backfill_skip",
+        description = "Mark an observation as reviewed for entity backfill with nothing found — it won't reappear in igris_backfill_candidates until the reconsider_after_days window passes."
+    )]
+    fn igris_backfill_skip(
+        &self,
+        Parameters(args): Parameters<BackfillSkipArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
+        let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_backfill_skip",
+            "start",
+            serde_json::json!({ "observation_id": args.observation_id, "reason": args.reason }),
+        );
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        let mut end_data = serde_json::json!({});
+        let result = match db.mark_entities_reviewed(args.observation_id) {
+            Ok(true) => {
+                end_data = serde_json::json!({ "reviewed": true });
+                serde_json::json!({ "reviewed": true, "reason": args.reason }).to_string()
+            }
+            Ok(false) => {
+                end_data = serde_json::json!({ "reviewed": false });
+                err_json(IgrisError::not_found(format!(
+                    "Observation {} not found or deleted",
+                    args.observation_id
+                )))
+            }
+            Err(e) => {
+                tracing::warn!(tool = "igris_backfill_skip", error = %e, "db error");
+                self.notify_log(
+                    &ctx,
+                    LoggingLevel::Warning,
+                    "igris_backfill_skip",
+                    "error",
+                    serde_json::json!({ "error": e.to_string() }),
+                );
+                end_data = serde_json::json!({ "reviewed": false });
+                err_json(e)
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_backfill_skip", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_backfill_skip",
+            "end",
+            notify::with_duration(end_data, duration_ms),
+        );
+        result
+    }
 }
 
 #[tool_handler]

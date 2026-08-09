@@ -74,10 +74,21 @@ mod tests {
     #[test]
     fn discover_files_respects_gitignore() {
         let dir = tempdir().unwrap();
-        // The ignore crate requires a .git directory to respect .gitignore files
+        // The ignore crate requires a .git directory to respect .gitignore files.
+        // GIT_DIR/GIT_WORK_TREE (etc.) are set by git itself around hook
+        // subprocesses (e.g. this test running under `git commit`'s
+        // pre-commit hook) and leak into this nested `git init`, pointing it
+        // at the outer repo instead of `dir` — clear them so init is scoped
+        // to the fresh tempdir regardless of the calling process's env.
         std::process::Command::new("git")
             .args(&["init", "--quiet"])
             .current_dir(dir.path())
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_COMMON_DIR")
+            .env_remove("GIT_OBJECT_DIRECTORY")
+            .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
             .output()
             .ok();
         fs::write(dir.path().join(".gitignore"), "ignored.rs\n").unwrap();

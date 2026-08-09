@@ -359,6 +359,48 @@ pub struct CodePathArgs {
     pub max_hops: Option<i64>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BackfillCandidatesArgs {
+    #[schemars(description = "Filter by project (omit for all).")]
+    pub project: Option<String>,
+    #[schemars(description = "Filter by scope: 'project' or 'personal' (omit for all).")]
+    pub scope: Option<String>,
+    #[schemars(description = "Max results (default 20, max 50).")]
+    pub limit: Option<i64>,
+    #[schemars(
+        description = "Re-surface an observation this many days after it was last marked reviewed with no entities found (default 30)."
+    )]
+    pub reconsider_after_days: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MentionsAddArgs {
+    #[schemars(description = "Observation id to attach mentions to.")]
+    pub observation_id: i64,
+    #[schemars(
+        description = "Entity names mentioned by this observation. Unknown names auto-create stub entities; entities mentioned together get linked. Must be non-empty — use igris_backfill_skip if there are none."
+    )]
+    pub mentions: Vec<String>,
+    #[schemars(
+        description = "Project bucket for entity resolution (omit to inherit the observation's project)."
+    )]
+    pub project: Option<String>,
+    #[schemars(
+        description = "Scope for entity resolution: 'project' or 'personal' (omit to inherit the observation's scope)."
+    )]
+    pub scope: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BackfillSkipArgs {
+    #[schemars(description = "Observation id to mark as reviewed with no entities found.")]
+    pub observation_id: i64,
+    #[schemars(
+        description = "Optional note on why nothing was found — echoed back, not persisted."
+    )]
+    pub reason: Option<String>,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

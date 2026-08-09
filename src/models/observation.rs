@@ -21,6 +21,21 @@ pub struct Observation {
     pub deleted_at: Option<String>,
 }
 
+/// An observation with no recorded entity mentions, eligible for retroactive
+/// entity backfill via `igris_backfill_candidates`/`igris_mentions_add`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackfillCandidate {
+    pub id: i64,
+    pub title: String,
+    pub content: String,
+    #[serde(rename = "type")]
+    pub observation_type: String,
+    pub project: Option<String>,
+    pub scope: String,
+    pub created_at: String,
+    pub entities_reviewed_at: Option<String>,
+}
+
 /// A search result with relevance ranking.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {

@@ -67,7 +67,7 @@ The binary dispatches to one of four modes based on the CLI command:
 src/
 ├── main.rs          # Entry: CLI parse → logging → DB init → mode dispatch
 ├── cli.rs           # clap derive structs (Cli, Command, ServeArgs, SyncArgs)
-├── schema.rs        # SQL schema v1+v2+v3+v4+v5: tables, FTS5, triggers, indices, pragmas (v2 = entity graph, v3 = embeddings, v4 = vec0 index, v5 = code graph)
+├── schema.rs        # SQL schema v1+v2+v3+v4+v5+v6: tables, FTS5, triggers, indices, pragmas (v2 = entity graph, v3 = embeddings, v4 = vec0 index, v5 = code graph, v6 = entity-backfill bookkeeping)
 ├── store.rs         # BrainStore trait — storage contract (entity/graph surface)
 ├── embed.rs         # Embedder trait, HashEmbedder, vector utils, register_sqlite_vec (statically-linked)
 ├── codegraph/
