@@ -2062,6 +2062,84 @@ impl IgrisServer {
         );
         result
     }
+
+    #[tool(
+        name = "igris_mentions_add",
+        description = "Attach entity mentions to an existing observation (unknown names auto-create stub entities, and entities mentioned together get linked automatically) — the same resolution igris_save does at save time, usable retroactively. Requires a non-empty mentions list; use igris_backfill_skip if the observation genuinely mentions nothing."
+    )]
+    fn igris_mentions_add(
+        &self,
+        Parameters(args): Parameters<MentionsAddArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> String {
+        let start = Instant::now();
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_mentions_add",
+            "start",
+            serde_json::json!({
+                "observation_id": args.observation_id,
+                "mentions_count": args.mentions.len(),
+            }),
+        );
+        if args.mentions.is_empty() {
+            return err_json(IgrisError::validation(
+                "mentions must be non-empty; use igris_backfill_skip to mark an observation as having no entities".to_string(),
+            ));
+        }
+        let db = match lock_db(&self.db) {
+            Ok(db) => db,
+            Err(e) => return err_json(e),
+        };
+        // get_observation doesn't filter deleted_at, and a missing id surfaces
+        // as a generic DatabaseError rather than NotFound — check explicitly.
+        let scope = args.scope.clone().unwrap_or_else(default_scope);
+        let obs_ok =
+            matches!(db.get_observation(args.observation_id), Ok(o) if o.deleted_at.is_none());
+        let mut end_data = serde_json::json!({});
+        let result = if !obs_ok {
+            end_data = serde_json::json!({ "linked_count": 0 });
+            err_json(IgrisError::not_found(format!(
+                "Observation {} not found or deleted",
+                args.observation_id
+            )))
+        } else {
+            match db.record_mentions(
+                args.observation_id,
+                &args.mentions,
+                args.project.as_deref(),
+                &scope,
+            ) {
+                Ok(entities) => {
+                    end_data = serde_json::json!({ "linked_count": entities.len() });
+                    to_json(&entities)
+                }
+                Err(e) => {
+                    tracing::warn!(tool = "igris_mentions_add", error = %e, "db error");
+                    self.notify_log(
+                        &ctx,
+                        LoggingLevel::Warning,
+                        "igris_mentions_add",
+                        "error",
+                        serde_json::json!({ "error": e.to_string() }),
+                    );
+                    end_data = serde_json::json!({ "linked_count": 0 });
+                    err_json(e)
+                }
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(tool = "igris_mentions_add", duration_ms);
+        self.notify_log(
+            &ctx,
+            LoggingLevel::Info,
+            "igris_mentions_add",
+            "end",
+            notify::with_duration(end_data, duration_ms),
+        );
+        result
+    }
 }
 
 #[tool_handler]

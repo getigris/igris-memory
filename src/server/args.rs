@@ -373,6 +373,22 @@ pub struct BackfillCandidatesArgs {
     pub reconsider_after_days: Option<i64>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MentionsAddArgs {
+    #[schemars(description = "Observation id to attach mentions to.")]
+    pub observation_id: i64,
+    #[schemars(
+        description = "Entity names mentioned by this observation. Unknown names auto-create stub entities; entities mentioned together get linked. Must be non-empty — use igris_backfill_skip if there are none."
+    )]
+    pub mentions: Vec<String>,
+    #[schemars(description = "Project for entity resolution (omit for current project).")]
+    pub project: Option<String>,
+    #[schemars(
+        description = "Scope for entity resolution: 'project' or 'personal' (default 'project')."
+    )]
+    pub scope: Option<String>,
+}
+
 pub fn default_type() -> String {
     "manual".to_string()
 }

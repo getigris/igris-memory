@@ -61,6 +61,25 @@ fn obj(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
     value.as_object().unwrap().clone()
 }
 
+/// Extracts the `code` field from an `IgrisError` JSON body embedded in a
+/// tool call's text content. Tool handlers in this server return a plain
+/// `String` (see `err_json`/`to_json` in `src/server/mod.rs`), never
+/// `McpError`, so `CallToolResult::is_error` is never set — errors must be
+/// detected by inspecting the returned JSON body instead.
+fn error_code(response: &rmcp::model::CallToolResult) -> anyhow::Result<String> {
+    let json = serde_json::to_value(&response.content)?;
+    let text = json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .ok_or_else(|| anyhow::anyhow!("no text field in response"))?;
+    let parsed: serde_json::Value = serde_json::from_str(text)?;
+    parsed["code"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow::anyhow!("no code field in response body: {text}"))
+}
+
 #[tokio::test]
 async fn logs_and_progress_notifications() -> anyhow::Result<()> {
     let db = Database::open_in_memory()?;
@@ -1692,6 +1711,145 @@ async fn igris_backfill_candidates_lists_unmentioned_observations() -> anyhow::R
         .map(|c| c["title"].as_str().unwrap())
         .collect();
     assert!(titles.contains(&"no mentions yet"));
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn igris_mentions_add_links_existing_observation() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let db_handle = server.db.clone();
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let save_response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(CallToolRequestParams::new("igris_save").with_arguments(obj(
+            serde_json::json!({
+                "title": "old memory",
+                "content": "no mentions declared at save time",
+            }),
+        ))),
+    )
+    .await
+    .expect("igris_save timed out")?;
+    let save_json = serde_json::to_value(&save_response.content)?;
+    let obs_id = save_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|o| o["text"].as_str())
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .and_then(|v| v["id"].as_i64())
+        .ok_or_else(|| anyhow::anyhow!("no id in save response"))?;
+
+    let add_response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_mentions_add").with_arguments(obj(
+                serde_json::json!({
+                    "observation_id": obs_id,
+                    "mentions": ["Backfilled Person"],
+                }),
+            )),
+        ),
+    )
+    .await
+    .expect("igris_mentions_add timed out")?;
+    assert_ne!(
+        add_response.is_error,
+        Some(true),
+        "call failed: {:?}",
+        add_response.content
+    );
+
+    let inner_db = db_handle.lock().unwrap();
+    let mention_count: i64 = inner_db.conn.query_row(
+        "SELECT COUNT(*) FROM mentions WHERE observation_id = ?1",
+        rusqlite::params![obs_id],
+        |r| r.get(0),
+    )?;
+    assert_eq!(mention_count, 1);
+    drop(inner_db);
+
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn igris_mentions_add_rejects_empty_mentions_and_missing_observation() -> anyhow::Result<()> {
+    let db = Database::open_in_memory()?;
+    let server = IgrisServer::with_embedder(db, None);
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let running = server.serve(server_transport).await?;
+        running.waiting().await?;
+        anyhow::Ok(())
+    });
+
+    let signal = Arc::new(Notify::new());
+    let collected = Collected::default();
+    let client = TestClient {
+        collected: collected.clone(),
+        signal: signal.clone(),
+    }
+    .serve(client_transport)
+    .await?;
+
+    let empty_response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_mentions_add").with_arguments(obj(
+                serde_json::json!({
+                    "observation_id": 1,
+                    "mentions": [],
+                }),
+            )),
+        ),
+    )
+    .await
+    .expect("call timed out")?;
+    // Tool handlers here return a plain `String` (never `McpError`), so
+    // `CallToolResult::is_error` is never flipped to `true` — errors surface
+    // as a structured `{"error", "code"}` JSON body instead. Assert on that.
+    let empty_code = error_code(&empty_response)?;
+    assert_eq!(
+        empty_code, "VALIDATION_ERROR",
+        "empty mentions should error"
+    );
+
+    let missing_response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.call_tool(
+            CallToolRequestParams::new("igris_mentions_add").with_arguments(obj(
+                serde_json::json!({
+                    "observation_id": 999_999,
+                    "mentions": ["Someone"],
+                }),
+            )),
+        ),
+    )
+    .await
+    .expect("call timed out")?;
+    let missing_code = error_code(&missing_response)?;
+    assert_eq!(
+        missing_code, "NOT_FOUND",
+        "missing observation should error"
+    );
 
     client.cancel().await?;
     Ok(())
