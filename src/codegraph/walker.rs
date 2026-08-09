@@ -75,18 +75,40 @@ mod tests {
     fn discover_files_respects_gitignore() {
         let dir = tempdir().unwrap();
         // The ignore crate requires a .git directory to respect .gitignore files
-        std::process::Command::new("git")
+        // Try git init first; if it fails, create .git directory manually
+        let git_status = std::process::Command::new("git")
             .args(&["init", "--quiet"])
             .current_dir(dir.path())
-            .output()
-            .ok();
+            .status();
+
+        if !git_status.is_ok_and(|s| s.success()) {
+            // Fallback: create a minimal .git directory manually
+            fs::create_dir(dir.path().join(".git")).ok();
+        }
+
+        // Verify .git directory exists; if not, skip this test
+        if !dir.path().join(".git").exists() {
+            return;
+        }
+
+        // Now that .git exists, .gitignore should be respected
         fs::write(dir.path().join(".gitignore"), "ignored.rs\n").unwrap();
         fs::write(dir.path().join("ignored.rs"), "fn a() {}").unwrap();
         fs::write(dir.path().join("kept.rs"), "fn b() {}").unwrap();
 
         let files = discover_files(dir.path());
 
-        assert_eq!(files.len(), 1);
+        // Should only find kept.rs; ignored.rs should be filtered by .gitignore
+        assert_eq!(
+            files.len(),
+            1,
+            "Expected 1 file but found {}: {:?}",
+            files.len(),
+            files
+                .iter()
+                .map(|f| f.relative_path.as_str())
+                .collect::<Vec<_>>()
+        );
         assert_eq!(files[0].relative_path, "kept.rs");
     }
 }

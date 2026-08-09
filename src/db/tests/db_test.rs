@@ -102,6 +102,132 @@ fn soft_delete() {
     assert!(deleted.deleted_at.is_some());
 }
 
+#[test]
+fn backfill_candidates_excludes_mentioned_and_recently_reviewed() {
+    use crate::store::BrainStore;
+
+    let db = test_db();
+    let never_reviewed = db
+        .save_observation(
+            "Never reviewed",
+            "never reviewed content",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    let has_mentions = db
+        .save_observation(
+            "Has mentions",
+            "has mentions content",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    db.record_mentions(has_mentions.id, &["Someone".to_string()], None, "project")
+        .unwrap();
+    let recently_reviewed = db
+        .save_observation(
+            "Recently reviewed",
+            "recently reviewed content",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    db.mark_entities_reviewed(recently_reviewed.id).unwrap();
+    let stale_reviewed = db
+        .save_observation(
+            "Stale reviewed",
+            "stale reviewed content",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    db.mark_entities_reviewed(stale_reviewed.id).unwrap();
+    db.conn
+        .execute(
+            "UPDATE observations SET entities_reviewed_at = datetime('now', '-40 days') WHERE id = ?1",
+            rusqlite::params![stale_reviewed.id],
+        )
+        .unwrap();
+
+    let candidates = db.list_backfill_candidates(None, None, 20, 30).unwrap();
+    let ids: Vec<i64> = candidates.iter().map(|c| c.id).collect();
+
+    assert!(
+        ids.contains(&never_reviewed.id),
+        "never-reviewed observation should be a candidate"
+    );
+    assert!(
+        ids.contains(&stale_reviewed.id),
+        "review older than the window should be a candidate again"
+    );
+    assert!(
+        !ids.contains(&has_mentions.id),
+        "observation with mentions should not be a candidate"
+    );
+    assert!(
+        !ids.contains(&recently_reviewed.id),
+        "review inside the window should not be a candidate"
+    );
+}
+
+#[test]
+fn backfill_candidates_excludes_deleted_and_respects_limit() {
+    let db = test_db();
+    let deleted = db
+        .save_observation(
+            "Deleted",
+            "deleted content",
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    db.delete_observation(deleted.id).unwrap();
+    for i in 0..3 {
+        db.save_observation(
+            &format!("Obs {i}"),
+            &format!("obs {} content", i),
+            "manual",
+            None,
+            "project",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    }
+
+    let all = db.list_backfill_candidates(None, None, 20, 30).unwrap();
+    assert!(
+        all.iter().all(|c| c.id != deleted.id),
+        "soft-deleted observation must never be a candidate"
+    );
+    assert_eq!(all.len(), 3);
+
+    let limited = db.list_backfill_candidates(None, None, 2, 30).unwrap();
+    assert_eq!(limited.len(), 2);
+}
+
 // ─── Search ─────────────────────────────────────────────────────
 
 #[test]

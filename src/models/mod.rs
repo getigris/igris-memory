@@ -11,6 +11,6 @@ pub use codegraph::{
 };
 pub use entity::{Edge, Entity, EntityAlias, EntityBrief, EntityNeighbor, Mention};
 pub use export::{ExportData, ImportResult};
-pub use observation::{Observation, SearchResult, Timeline};
+pub use observation::{BackfillCandidate, Observation, SearchResult, Timeline};
 pub use session::Session;
 pub use stats::{PurgeResult, Stats};

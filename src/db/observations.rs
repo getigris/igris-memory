@@ -196,4 +196,60 @@ impl Database {
         )?;
         Ok(affected > 0)
     }
+
+    /// Observations with no `mentions` row, eligible for retroactive entity
+    /// backfill. Never-reviewed observations sort first, then observations
+    /// whose review is older than `reconsider_after_days` — oldest first.
+    #[allow(dead_code)]
+    pub fn list_backfill_candidates(
+        &self,
+        project: Option<&str>,
+        scope: Option<&str>,
+        limit: i64,
+        reconsider_after_days: i64,
+    ) -> DbResult<Vec<crate::models::BackfillCandidate>> {
+        let limit = limit.clamp(1, 50);
+        let reconsider_after_days = reconsider_after_days.max(0);
+        let mut stmt = self.conn.prepare(
+            "SELECT id, title, content, type, created_at, entities_reviewed_at
+             FROM observations
+             WHERE deleted_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM mentions m WHERE m.observation_id = observations.id)
+               AND (entities_reviewed_at IS NULL
+                    OR entities_reviewed_at < datetime('now', '-' || ?1 || ' days'))
+               AND (?2 IS NULL OR project = ?2)
+               AND (?3 IS NULL OR scope = ?3)
+             ORDER BY entities_reviewed_at IS NULL DESC, entities_reviewed_at ASC, created_at ASC
+             LIMIT ?4",
+        )?;
+        let rows: Vec<crate::models::BackfillCandidate> = stmt
+            .query_map(
+                params![reconsider_after_days, project, scope, limit],
+                |row| {
+                    Ok(crate::models::BackfillCandidate {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        content: row.get(2)?,
+                        observation_type: row.get(3)?,
+                        created_at: row.get(4)?,
+                        entities_reviewed_at: row.get(5)?,
+                    })
+                },
+            )?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    /// Marks an observation as evaluated for entity backfill (with nothing
+    /// found to link). Returns `false` if the id doesn't exist or is already
+    /// soft-deleted — mirrors `delete_observation`'s existence-check shape.
+    #[allow(dead_code)]
+    pub fn mark_entities_reviewed(&self, id: i64) -> DbResult<bool> {
+        let affected = self.conn.execute(
+            "UPDATE observations SET entities_reviewed_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            params![now_utc(), id],
+        )?;
+        Ok(affected > 0)
+    }
 }
